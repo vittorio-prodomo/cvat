@@ -1,0 +1,85 @@
+metadata:
+  name: pth-ultralytics-yolov11l-focus-v0.2
+  namespace: cvat
+  annotations:
+    name: Focus (YOLOv11l)
+    type: detector
+    framework: pytorch
+    spec: |
+          [
+            {
+              "id": 0,
+              "name": "crack",
+              "attributes": [
+                {
+                  "name": "confidence",
+                  "input_type": "text",
+                  "values": [""]
+                }
+              ]
+            },
+            {
+              "id": 1,
+              "name": "spalling",
+              "attributes": [
+                {
+                  "name": "confidence",
+                  "input_type": "text",
+                  "values": [""]
+                }
+              ]
+            }
+          ]
+spec:
+  description: YOLOv11 Focus from AlgoritmIA (Beta) for GPU
+  runtime: 'python:3.11'
+  handler: main:handler
+  eventTimeout: 30s
+
+  build:
+    image: algoritmIA/yolo-focus-v0.2
+    baseImage: ultralytics/ultralytics:8.3.241
+    directives:
+      preCopy:
+        - kind: WORKDIR
+          value: /opt/nuclio
+        - kind: RUN
+          value: apt update && apt install --no-install-recommends -y curl libglib2.0-0
+      postCopy:
+        - kind: RUN
+          value: pip install scikit-image supervision
+
+    # volumes:
+    #   - type: bind
+    #     source: /home/unina/cvat/serverless/pytorch/unina/bridge_defect_detector/yolov11x_v0.1/
+    #     target: /opt/nuclio/model
+
+  volumes:
+    # Mount a host directory (read-only) into /models
+    - volume:
+        name: data-mount
+        hostPath:
+          path: "/data/projects/bridge_defect_detection"   # e.g., /home/pier/models
+      volumeMount:
+        name: data-mount
+        mountPath: "/data"
+        readOnly: true
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 1
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 67108864 # 64MB
+
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+
+  platform:
+    attributes:
+      restartPolicy:
+      #   name: always
+      #   maximumRetryCount: 3
+      # mountMode: volume
