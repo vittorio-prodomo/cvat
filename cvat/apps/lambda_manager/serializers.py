@@ -48,6 +48,15 @@ class FunctionCallRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Label mapping from the model to the task labels",
     )
+    extra_params = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text=(
+            "Model-specific runtime parameters forwarded verbatim to the function payload. "
+            "Declared by the function via the extra_params_schema annotation in function.yaml."
+        ),
+    )
 
 
 class FunctionCallParamsSerializer(serializers.Serializer):

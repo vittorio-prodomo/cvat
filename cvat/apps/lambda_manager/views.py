@@ -247,6 +247,12 @@ class LambdaFunction:
         self.help_message = meta_anno.get("help_message", "")
         self.gateway = gateway
 
+        # Optional per-function parameter schema declared in function.yaml
+        extra_params_schema_raw = meta_anno.get("extra_params_schema")
+        self.extra_params_schema = (
+            json.loads(extra_params_schema_raw) if extra_params_schema_raw else []
+        )
+
         if "supported_shape_types" in meta_anno:
             self.supported_shape_types = [
                 stripped
@@ -271,6 +277,7 @@ class LambdaFunction:
             "description": self.description,
             "name": self.name,
             "version": self.version,
+            "extra_params_schema": self.extra_params_schema,
         }
 
         if self.kind is FunctionKind.INTERACTOR:
@@ -325,6 +332,9 @@ class LambdaFunction:
         threshold = data.get("threshold")
         if threshold:
             payload.update({"threshold": threshold})
+        extra_params = data.get("extra_params") or {}
+        if extra_params:
+            payload.update(extra_params)
         mapping = data.get("mapping", {})
 
         model_labels = self.labels
@@ -683,6 +693,7 @@ class LambdaQueue:
         cleanup,
         conv_mask_to_poly,
         max_distance,
+        extra_params,
         request,
         *,
         job: int | None = None,
@@ -732,6 +743,7 @@ class LambdaQueue:
                         "conv_mask_to_poly": conv_mask_to_poly,
                         "mapping": mapping,
                         "max_distance": max_distance,
+                        "extra_params": extra_params or {},
                     },
                     depends_on=define_dependent_job(queue, user_id),
                     result_ttl=self.RESULT_TTL.total_seconds(),
@@ -987,6 +999,7 @@ class LambdaJob:
         threshold: float,
         mapping: dict[str, str] | None,
         conv_mask_to_poly: bool,
+        extra_params: dict | None = None,
         *,
         db_job: Job | None = None,
     ):
@@ -1008,6 +1021,7 @@ class LambdaJob:
                     "mapping": mapping,
                     "threshold": threshold,
                     "conv_mask_to_poly": conv_mask_to_poly,
+                    "extra_params": extra_params or {},
                 },
                 converter=converter,
             )
@@ -1182,6 +1196,7 @@ class LambdaJob:
                 kwargs.get("threshold"),
                 kwargs.get("mapping"),
                 kwargs.get("conv_mask_to_poly"),
+                kwargs.get("extra_params") or {},
                 db_job=db_job,
             )
         elif function.kind == FunctionKind.REID:
@@ -1411,6 +1426,7 @@ class RequestViewSet(viewsets.ViewSet):
             conv_mask_to_poly = request_data.get("conv_mask_to_poly", False)
             mapping = request_data.get("mapping")
             max_distance = request_data.get("max_distance")
+            extra_params = request_data.get("extra_params") or {}
         except KeyError as err:
             raise ValidationError(
                 "`{}` lambda function was run ".format(request_data.get("function", "undefined"))
@@ -1429,6 +1445,7 @@ class RequestViewSet(viewsets.ViewSet):
             cleanup,
             conv_mask_to_poly,
             max_distance,
+            extra_params,
             request,
             job=job,
         )

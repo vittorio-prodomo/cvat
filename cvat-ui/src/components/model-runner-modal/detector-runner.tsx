@@ -12,6 +12,7 @@ import InputNumber from 'antd/lib/input-number';
 import Button from 'antd/lib/button';
 import Switch from 'antd/lib/switch';
 import Tag from 'antd/lib/tag';
+import Divider from 'antd/lib/divider';
 import notification from 'antd/lib/notification';
 import { ArrowRightOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 
@@ -43,6 +44,7 @@ export interface AnnotateTaskRequestBody {
     cleanup: boolean;
     conv_mask_to_poly: boolean;
     threshold?: number;
+    extra_params?: Record<string, unknown>;
 }
 
 function convertMappingToServer(mapping: FullMapping): ServerMapping {
@@ -77,6 +79,7 @@ function DetectorRunner(props: Props): JSX.Element {
     const [detectorThreshold, setDetectorThreshold] = useState<number | null>(null);
     const [modelLabels, setModelLabels] = useState<LabelInterface[]>([]);
     const [taskLabels, setTaskLabels] = useState<LabelInterface[]>([]);
+    const [extraParams, setExtraParams] = useState<Record<string, unknown>>({});
 
     const model = models.find((_model): boolean => _model.id === modelID);
     const isDetector = model?.kind === ModelKind.DETECTOR;
@@ -85,6 +88,20 @@ function DetectorRunner(props: Props): JSX.Element {
         [LabelType.ANY, LabelType.MASK].includes(model.returnType);
 
     const buttonEnabled = model && (isReId || (isDetector && mapping.length));
+
+    // Reset extra params to schema defaults whenever the selected model changes
+    useEffect(() => {
+        const schema = model?.extraParamsSchema ?? [];
+        if (schema.length > 0) {
+            const defaults: Record<string, unknown> = {};
+            schema.forEach((p: any) => {
+                defaults[p.name] = p.default !== undefined ? p.default : null;
+            });
+            setExtraParams(defaults);
+        } else {
+            setExtraParams({});
+        }
+    }, [modelID]);
 
     useEffect(() => {
         const converted = labels.map((label) => ({
@@ -205,6 +222,79 @@ function DetectorRunner(props: Props): JSX.Element {
                     </Row>
                 </div>
             )}
+            {isDetector && (model?.extraParamsSchema ?? []).length > 0 && (
+                <div className='cvat-detector-runner-extra-params'>
+                    <Divider orientation='left' plain style={{ marginTop: 8, marginBottom: 8 }}>
+                        <Text strong>Model parameters</Text>
+                    </Divider>
+                    {(model?.extraParamsSchema ?? []).map((param: any) => {
+                        const updateParam = (value: unknown): void => {
+                            setExtraParams((prev) => ({ ...prev, [param.name]: value }));
+                        };
+                        const currentVal = extraParams[param.name];
+                        return (
+                            <Row
+                                key={param.name}
+                                align='middle'
+                                justify='start'
+                                style={{ marginBottom: 6 }}
+                            >
+                                <Col span={12}>
+                                    <Text>{param.label ?? param.name}</Text>
+                                    {param.description && (
+                                        <CVATTooltip title={param.description}>
+                                            <QuestionCircleOutlined className='cvat-info-circle-icon' />
+                                        </CVATTooltip>
+                                    )}
+                                </Col>
+                                <Col span={12}>
+                                    {param.type === 'number' && (
+                                        <InputNumber
+                                            style={{ width: '100%' }}
+                                            min={param.min}
+                                            max={param.max}
+                                            step={param.step ?? 1}
+                                            value={currentVal as number | null}
+                                            onChange={(v) => updateParam(v)}
+                                        />
+                                    )}
+                                    {param.type === 'boolean' && (
+                                        <Switch
+                                            checked={!!currentVal}
+                                            onChange={(checked) => updateParam(checked)}
+                                        />
+                                    )}
+                                    {param.type === 'select' && (
+                                        <Select
+                                            style={{ width: '100%' }}
+                                            value={currentVal as string}
+                                            onChange={(v) => updateParam(v)}
+                                        >
+                                            {(param.options ?? []).map((opt: string) => (
+                                                <Select.Option key={opt} value={opt}>
+                                                    {opt}
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    )}
+                                    {param.type === 'number_list' && (
+                                        <Select
+                                            style={{ width: '100%' }}
+                                            mode='tags'
+                                            tokenSeparators={[',', ' ']}
+                                            value={(currentVal as string[] | null) ?? []}
+                                            onChange={(v) => updateParam(
+                                                (v as string[]).map(Number).filter((n) => !Number.isNaN(n)),
+                                            )}
+                                            notFoundContent={null}
+                                        />
+                                    )}
+                                </Col>
+                            </Row>
+                        );
+                    })}
+                </div>
+            )}
             {isReId ? (
                 <div>
                     <Row align='middle' justify='start'>
@@ -258,12 +348,18 @@ function DetectorRunner(props: Props): JSX.Element {
                             if (!model) return;
                             const serverMapping = convertMappingToServer(mapping);
                             if (model.kind === ModelKind.DETECTOR) {
+                                const nonNullExtraParams = Object.fromEntries(
+                                    Object.entries(extraParams).filter(([, v]) => v !== null && v !== undefined),
+                                );
                                 const body: AnnotateTaskRequestBody = {
                                     type: 'annotate_task',
                                     mapping: serverMapping,
                                     cleanup,
                                     conv_mask_to_poly: convertMasksToPolygons,
                                     ...(detectorThreshold !== null ? { threshold: detectorThreshold } : {}),
+                                    ...(Object.keys(nonNullExtraParams).length
+                                        ? { extra_params: nonNullExtraParams }
+                                        : {}),
                                 };
 
                                 runInference(model, body);

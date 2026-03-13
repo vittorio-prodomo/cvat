@@ -110,6 +110,12 @@ export default class MLModel {
         return labelType;
     }
 
+    public get extraParamsSchema(): object[] {
+        return Array.isArray(this.serialized.extra_params_schema)
+            ? this.serialized.extra_params_schema
+            : [];
+    }
+
     public async preview(): Promise<string> {
         const result = await PluginRegistry.apiWrapper.call(this, MLModel.prototype.preview);
         return result;

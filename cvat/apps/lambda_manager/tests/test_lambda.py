@@ -677,6 +677,36 @@ class LambdaTestCases(_LambdaTestCaseBase):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_api_v2_lambda_functions_create_detector_with_extra_params(self):
+        """extra_params sent in the request body must appear verbatim in the Nuclio payload."""
+        captured_payload = {}
+
+        def capturing_invoke(func, payload):
+            captured_payload.update(payload)
+            return []  # empty detection list
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=capturing_invoke,
+        ):
+            data = {
+                "task": self.main_task["id"],
+                "frame": 0,
+                "mapping": {"car": {"name": "car"}},
+                "extra_params": {
+                    "postprocess_type": "NMS",
+                    "overlap_ratio": 0.3,
+                    "full_image_pred": True,
+                },
+            }
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}", self.admin, data=data
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(captured_payload.get("postprocess_type"), "NMS")
+            self.assertAlmostEqual(captured_payload.get("overlap_ratio"), 0.3)
+            self.assertTrue(captured_payload.get("full_image_pred"))
+
     @skip(
         "Fail: expected result != actual result"
     )  # TODO move test to test_api_v2_lambda_functions_create
