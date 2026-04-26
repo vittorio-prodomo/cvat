@@ -995,12 +995,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             objects = objectsToConstruct
                 .filter(({ approximatedPoints }) => approximatedPoints.length >= 3)
                 .map(({ approximatedPoints, labelName }) => {
-                    // Resolve label: use per-shape labelName if provided,
-                    // otherwise fall back to activeLabelID
-                    const label = labelName ?
-                        labels.find((l) => l.name === labelName) ||
-                        labels.find((l) => l.id === activeLabelID as number) :
-                        labels.find((l) => l.id === activeLabelID as number);
+                    // Resolve label: use per-shape labelName if provided (authoritative),
+                    // otherwise fall back to activeLabelID (legacy path for SAM3 etc.)
+                    let label: Label | undefined;
+                    if (labelName !== null && labelName !== undefined) {
+                        // labelName is authoritative - no fallback if it doesn't match
+                        label = labels.find((l) => l.name === labelName);
+                    } else {
+                        // Legacy path: use activeLabelID when labelName is absent
+                        label = labels.find((l) => l.id === activeLabelID as number);
+                    }
 
                     if (!label) {
                         skippedShapes += 1;
@@ -1027,12 +1031,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             objects = objectsToConstruct
                 .filter(({ rle }) => rle.length >= 6) // minimal RLE length for a valid shape
                 .map(({ rle, labelName }) => {
-                    // Resolve label: use per-shape labelName if provided,
-                    // otherwise fall back to activeLabelID
-                    const label = labelName ?
-                        labels.find((l) => l.name === labelName) ||
-                        labels.find((l) => l.id === activeLabelID as number) :
-                        labels.find((l) => l.id === activeLabelID as number);
+                    // Resolve label: use per-shape labelName if provided (authoritative),
+                    // otherwise fall back to activeLabelID (legacy path for SAM3 etc.)
+                    let label: Label | undefined;
+                    if (labelName !== null && labelName !== undefined) {
+                        // labelName is authoritative - no fallback if it doesn't match
+                        label = labels.find((l) => l.name === labelName);
+                    } else {
+                        // Legacy path: use activeLabelID when labelName is absent
+                        label = labels.find((l) => l.id === activeLabelID as number);
+                    }
 
                     if (!label) {
                         skippedShapes += 1;
