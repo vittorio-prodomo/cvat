@@ -988,6 +988,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             ({ confidence }) => typeof confidence !== 'number' || confidence >= thresholdValue,
         );
 
+        let skippedShapes = 0;
         let objects: ObjectState[] = [];
         if (convertMasksToPolygons) {
             objects = objectsToConstruct
@@ -1000,11 +1001,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         labels.find((l) => l.id === activeLabelID as number) :
                         labels.find((l) => l.id === activeLabelID as number);
 
+                    if (!label) {
+                        skippedShapes += 1;
+                        return null;
+                    }
+
                     const common = {
                         frame,
                         objectType: ObjectType.SHAPE,
                         source: core.enums.Source.SEMI_AUTO,
-                        label: label as Label,
+                        label,
                         occluded: false,
                         zOrder: curZOrder,
                     };
@@ -1014,7 +1020,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         points: approximatedPoints.flat(),
                         ...common,
                     });
-                });
+                })
+                .filter((obj) => obj !== null) as ObjectState[];
         } else {
             objects = objectsToConstruct
                 .filter(({ rle }) => rle.length >= 6) // minimal RLE length for a valid shape
@@ -1026,11 +1033,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         labels.find((l) => l.id === activeLabelID as number) :
                         labels.find((l) => l.id === activeLabelID as number);
 
+                    if (!label) {
+                        skippedShapes += 1;
+                        return null;
+                    }
+
                     const common = {
                         frame,
                         objectType: ObjectType.SHAPE,
                         source: core.enums.Source.SEMI_AUTO,
-                        label: label as Label,
+                        label,
                         occluded: false,
                         zOrder: curZOrder,
                     };
@@ -1040,8 +1052,21 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         points: Array.from(rle),
                         ...common,
                     });
-                });
+                })
+                .filter((obj) => obj !== null) as ObjectState[];
         }
+
+        if (skippedShapes > 0) {
+            notification.warning({
+                message: 'Some shapes were skipped',
+                description: (
+                    `${skippedShapes} shape(s) could not be created because ` +
+                    'their labels could not be resolved'
+                ),
+                duration: 5,
+            });
+        }
+
         createAnnotations(objects);
     }
 

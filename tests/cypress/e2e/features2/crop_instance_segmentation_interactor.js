@@ -131,10 +131,9 @@ context('Crop instance segmentation interactor', () => {
             }).as('cropInteractorCall');
 
             // Draw a box to trigger interaction
-            cy.get('.cvat-canvas-container')
-                .trigger('mousedown', 100, 100, { button: 0 })
-                .trigger('mousemove', 300, 300)
-                .trigger('mouseup', 300, 300);
+            cy.get('.cvat-canvas-container').trigger('mousedown', 100, 100, { button: 0 });
+            cy.get('.cvat-canvas-container').trigger('mousemove', 300, 300);
+            cy.get('.cvat-canvas-container').trigger('mouseup', 300, 300);
 
             // Wait for interactor call
             cy.wait('@cropInteractorCall');
@@ -146,6 +145,102 @@ context('Crop instance segmentation interactor', () => {
             cy.get('.cvat-objects-sidebar-state-item').should('have.length', 2);
             cy.get('.cvat-objects-sidebar-state-item').first().should('contain', 'car');
             cy.get('.cvat-objects-sidebar-state-item').last().should('contain', 'person');
+        });
+    });
+
+    describe('Edge case: unresolvable labels', () => {
+        it('Should skip shapes with unresolvable labels and show warning', () => {
+            // Mock interactor with valid response but invalid label names
+            cy.intercept('GET', '/api/lambda/functions*', {
+                statusCode: 200,
+                body: {
+                    results: [
+                        {
+                            id: 'test-crop-interactor-invalid',
+                            kind: 'interactor',
+                            description: 'Mocked crop interactor with invalid labels',
+                            version: 2,
+                            labels_v2: [
+                                { name: 'car', type: 'mask' },
+                                { name: 'person', type: 'mask' },
+                            ],
+                            params: {
+                                canvas: {
+                                    startWithBox: true,
+                                    minPosVertices: 0,
+                                    minNegVertices: 0,
+                                },
+                            },
+                        },
+                    ],
+                },
+            }).as('getInvalidLabelFunctions');
+
+            // Reload to pick up new mock
+            cy.reload();
+            cy.get('.cvat-canvas-container').should('exist');
+
+            // Open AI tools
+            cy.get('.cvat-tools-control').click();
+            cy.wait('@getInvalidLabelFunctions');
+
+            // Switch to interaction mode
+            cy.get('.cvat-tools-control-popover').within(() => {
+                cy.contains('Interaction').click();
+            });
+
+            // Select interactor
+            cy.get('.cvat-interactor-selector').click();
+            cy.contains('[role="option"]', 'Mocked crop interactor with invalid labels').click();
+
+            // Mock interactor response with one valid and one invalid label
+            cy.intercept('POST', '/api/lambda/functions/test-crop-interactor-invalid', {
+                statusCode: 200,
+                body: {
+                    shapes: [
+                        {
+                            type: 'mask',
+                            label: 'car', // Valid label
+                            points: [0, 0, 10, 10, 100, 100, 0, 99],
+                            group: 0,
+                            source: 'semi-auto',
+                            attributes: [],
+                            occluded: false,
+                            rotation: 0,
+                        },
+                        {
+                            type: 'mask',
+                            label: 'nonexistent_label', // Invalid label
+                            points: [0, 0, 20, 20, 200, 200, 0, 199],
+                            group: 0,
+                            source: 'semi-auto',
+                            attributes: [],
+                            occluded: false,
+                            rotation: 0,
+                        },
+                    ],
+                },
+            }).as('invalidLabelCall');
+
+            // Draw a box to trigger interaction
+            cy.get('.cvat-canvas-container').trigger('mousedown', 100, 100, { button: 0 });
+            cy.get('.cvat-canvas-container').trigger('mousemove', 300, 300);
+            cy.get('.cvat-canvas-container').trigger('mouseup', 300, 300);
+
+            // Wait for interactor call
+            cy.wait('@invalidLabelCall');
+
+            // Accept shapes by pressing N
+            cy.get('body').type('n');
+
+            // Verify warning notification appears
+            cy.get('.ant-notification-notice-warning').should('exist');
+            cy.get('.ant-notification-notice-message').should('contain', 'Some shapes were skipped');
+            cy.get('.ant-notification-notice-description').should('contain', 'could not be resolved');
+
+            // Verify only the valid shape was created
+            cy.get('.cvat-objects-sidebar-state-item').should('have.length', 1);
+            cy.get('.cvat-objects-sidebar-state-item').should('contain', 'car');
         });
     });
 
