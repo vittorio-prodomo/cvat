@@ -10,7 +10,7 @@
 
 - Enable Corepack and install workspace dependencies with `corepack enable yarn && yarn --immutable`.
 - Lint frontend changes with `yarn workspace cvat-ui run lint`.
-- Type-check frontend changes with `yarn workspace cvat-ui run type-check` and `yarn workspace cvat-core run type-check`.
+- Type-check frontend changes with `yarn workspace cvat-core run type-check`. 
 - For Django lambda-manager baseline checks, install test requirements with `pip install -r cvat/requirements/testing.txt` and run `python manage.py test --settings cvat.settings.testing cvat.apps.lambda_manager.tests.test_lambda -v 2`.
 - For the crop interactor browser verification flow, run:
   `cd tests && npx cypress run --config baseUrl=https://lambda.the-commander.net --env user=<user>,password=<password>,taskID=<task>,jobID=<job> --browser chrome --spec cypress/e2e/features2/crop_instance_segmentation_interactor.js`
