@@ -1357,7 +1357,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                                         },
                                     };
                                     canvasInstance.interact({ enabled: true, ...parameters });
-                                    // For mapped multiclass interactors, pass -1 as a sentinel since the label is determined by the mapping
+                                    // For mapped multiclass interactors, pass -1 as a sentinel since the
+                                    // label is determined by the mapping
                                     const labelID = activeLabelID ?? -1;
                                     onInteractionStart(activeInteractor, labelID, parameters);
                                 }
