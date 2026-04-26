@@ -226,6 +226,7 @@ If you have an interactor that returns masks, you can use it to segment objects.
 One such interactor is `Segment Anything`. Several implementations are available out of the box:
 
 - `serverless/pytorch/facebookresearch/sam/`  Includes two versions: one optimized for CPU and another for GPU.
+- `serverless/pytorch/facebookresearch/sam3/` Includes a GPU-only Segment Anything 3 interactor.
 
 Deploying a serverless function optimized for GPU follows a similar process.
 You only need to run the `serverless/deploy_gpu.sh` script, which executes the
@@ -263,6 +264,16 @@ serverless/deploy_gpu.sh serverless/pytorch/facebookresearch/sam/
 ```
 
 </details>
+
+To deploy the SAM3 interactor, export a Hugging Face token that can access the model weights and run:
+
+```bash
+HF_TOKEN=<your_hf_token> SAM3_MODEL_VERSION=sam3 \
+serverless/deploy_gpu.sh serverless/pytorch/facebookresearch/sam3/nuclio
+```
+
+The current SAM3 interactor integrates the `sam3` checkpoint for interactive masks.
+The `sam3.1` multiplex checkpoint is optimized for a different inference path and is not supported here.
 
 Now you should be able to annotate objects using segment anything.
 

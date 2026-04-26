@@ -44,7 +44,7 @@ ENV FFMPEG_VERSION=8.0 \
     OPENH264_VERSION=2.6.0
 
 WORKDIR /tmp/openh264
-RUN curl -sL https://github.com/cisco/openh264/archive/v${OPENH264_VERSION}.tar.gz --output - | \
+RUN curl -sL https://codeload.github.com/cisco/openh264/tar.gz/refs/tags/v${OPENH264_VERSION} --output - | \
     tar -zx --strip-components=1 && \
     make -j5 && make install-shared PREFIX=${PREFIX} && make clean
 

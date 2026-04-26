@@ -71,6 +71,13 @@ If you did, make sure all containers are stopped by `docker compose down`.
     --resource-limit nvidia.com/gpu=1
   ```
 
+  To deploy the GPU-only SAM3 interactor, export a Hugging Face token with access to the model weights and run:
+
+  ```bash
+  HF_TOKEN=<your_hf_token> SAM3_MODEL_VERSION=sam3 \
+    ./serverless/deploy_gpu.sh serverless/pytorch/facebookresearch/sam3/nuclio
+  ```
+
   **Note:**
 
   - The number of GPU deployed functions will be limited to your GPU memory.

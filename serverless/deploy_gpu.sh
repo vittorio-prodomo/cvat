@@ -14,12 +14,27 @@ for func_config in "$FUNCTIONS_DIR"/**/function-gpu.yaml
 do
     func_root="$(dirname "$func_config")"
     func_rel_path="$(realpath --relative-to="$SCRIPT_DIR" "$(dirname "$func_root")")"
+    env_args=(
+        --env CVAT_FUNCTIONS_REDIS_HOST=cvat_redis_ondisk
+        --env CVAT_FUNCTIONS_REDIS_PORT=6666
+    )
+
+    if [ -n "${HF_TOKEN:-}" ]; then
+        env_args+=(--env HF_TOKEN="$HF_TOKEN")
+    fi
+
+    if [ -n "${SAM3_MODEL_VERSION:-}" ]; then
+        env_args+=(--env SAM3_MODEL_VERSION="$SAM3_MODEL_VERSION")
+    fi
+
+    if [ -n "${SAM3_CHECKPOINT_PATH:-}" ]; then
+        env_args+=(--env SAM3_CHECKPOINT_PATH="$SAM3_CHECKPOINT_PATH")
+    fi
 
     echo "Deploying $func_rel_path function..."
     nuctl deploy --project-name cvat --path "$func_root" \
         --file "$func_config" --platform local \
-        --env CVAT_FUNCTIONS_REDIS_HOST=cvat_redis_ondisk \
-        --env CVAT_FUNCTIONS_REDIS_PORT=6666 \
+        "${env_args[@]}" \
         --platform-config '{"attributes": {"network": "cvat_cvat"}}'
 done
 
