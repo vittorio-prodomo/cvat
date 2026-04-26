@@ -23,6 +23,12 @@ import {
 } from 'cvat-core-wrapper';
 
 import LabelsMapperComponent, { LabelInterface, FullMapping } from './labels-mapper';
+import {
+    ServerMapping,
+    convertMappingToServer,
+    convertTaskLabels,
+    convertModelLabels,
+} from './label-mapping-utils';
 
 interface Props {
     withCleanup: boolean;
@@ -32,12 +38,6 @@ interface Props {
     runInference(model: MLModel, body: object): void;
 }
 
-type ServerMapping = Record<string, {
-    name: string;
-    attributes: Record<string, string>;
-    sublabels?: ServerMapping;
-}>;
-
 export interface AnnotateTaskRequestBody {
     type: 'annotate_task';
     mapping: ServerMapping;
@@ -45,24 +45,6 @@ export interface AnnotateTaskRequestBody {
     conv_mask_to_poly: boolean;
     threshold?: number;
     extra_params?: Record<string, unknown>;
-}
-
-function convertMappingToServer(mapping: FullMapping): ServerMapping {
-    return mapping.reduce<ServerMapping>((acc, [modelLabel, taskLabel, attributesMapping, subMapping]) => (
-        {
-            ...acc,
-            [modelLabel.name]: {
-                name: taskLabel.name,
-                attributes: attributesMapping.reduce<Record<string, string>>((attrAcc, val) => {
-                    if (val[0]?.name && val[1]?.name) {
-                        attrAcc[val[0].name] = val[1].name;
-                    }
-                    return attrAcc;
-                }, {}),
-                ...(subMapping.length ? { sublabels: convertMappingToServer(subMapping) } : {}),
-            },
-        }
-    ), {});
 }
 
 function DetectorRunner(props: Props): JSX.Element {
@@ -104,30 +86,9 @@ function DetectorRunner(props: Props): JSX.Element {
     }, [modelID]);
 
     useEffect(() => {
-        const converted = labels.map((label) => ({
-            name: label.name,
-            type: label.type,
-            color: label.color,
-            attributes: label.attributes.map((attr) => ({
-                name: attr.name,
-                input_type: attr.inputType,
-                values: [...attr.values],
-            })),
-            sublabels: (label.structure?.sublabels || []).map((sublabel) => ({
-                name: sublabel.name,
-                type: sublabel.type,
-                color: sublabel.color,
-                attributes: sublabel.attributes.map((attr) => ({
-                    name: attr.name,
-                    input_type: attr.inputType,
-                    values: [...attr.values],
-                })),
-            })),
-        }));
-
-        setTaskLabels(converted);
+        setTaskLabels(convertTaskLabels(labels));
         if (model) {
-            setModelLabels(model.labels);
+            setModelLabels(convertModelLabels(model));
             if (!model.labels.length && model.kind !== ModelKind.REID) {
                 notification.warning({ message: 'This model does not have specified labels' });
             }
@@ -356,10 +317,12 @@ function DetectorRunner(props: Props): JSX.Element {
                                     mapping: serverMapping,
                                     cleanup,
                                     conv_mask_to_poly: convertMasksToPolygons,
-                                    ...(detectorThreshold !== null ? { threshold: detectorThreshold } : {}),
-                                    ...(Object.keys(nonNullExtraParams).length
-                                        ? { extra_params: nonNullExtraParams }
-                                        : {}),
+                                    ...(detectorThreshold !== null ?
+                                        { threshold: detectorThreshold } :
+                                        {}),
+                                    ...(Object.keys(nonNullExtraParams).length ?
+                                        { extra_params: nonNullExtraParams } :
+                                        {}),
                                 };
 
                                 runInference(model, body);

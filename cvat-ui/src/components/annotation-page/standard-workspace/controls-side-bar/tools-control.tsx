@@ -51,6 +51,8 @@ import ApproximationAccuracy, {
 } from 'components/annotation-page/standard-workspace/controls-side-bar/approximation-accuracy';
 import ConfidenceThreshold from 'components/annotation-page/standard-workspace/controls-side-bar/confidence-threshold';
 import { switchToolsBlockerState } from 'actions/settings-actions';
+import { ServerMapping } from 'components/model-runner-modal/label-mapping-utils';
+import InteractorLabelMapper from './interactor-label-mapper';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
 
@@ -167,6 +169,7 @@ interface State {
     thresholdValue: number;
     mode: 'detection' | 'interaction' | 'tracking';
     portals: React.ReactPortal[];
+    interactorMapping: ServerMapping;
 }
 
 type DetectorResults = Extract<Awaited<ReturnType<typeof core.lambda.call>>, { version: number }>;
@@ -236,6 +239,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             points: [number, number][];
             approximatedPoints: [number, number][];
             confidence: number;
+            labelName: string | null;
         }[];
         latestRequest: null | {
             interactor: MLModel;
@@ -269,6 +273,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             showConfidenceControl: false,
             mode: 'interaction',
             portals: [],
+            interactorMapping: {},
         };
 
         this.interaction = {
@@ -401,7 +406,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance } = this.props;
-        const { activeInteractor, fetching } = this.state;
+        const { activeInteractor, fetching, interactorMapping } = this.state;
 
         const { id, latestRequest } = this.interaction;
         if (id !== interactionId || !latestRequest || fetching) {
@@ -429,7 +434,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 const response = await core.lambda.call(
                     jobInstance.taskId,
                     interactor,
-                    { ...data, job: jobInstance.id },
+                    {
+                        ...data,
+                        job: jobInstance.id,
+                        ...(Object.keys(interactorMapping).length > 0 ? { mapping: interactorMapping } : {}),
+                    },
                 ) as InteractorResults;
 
                 if (this.interaction.id !== interactionId || this.interaction.isAborted) {
@@ -454,6 +463,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         points: polygonPoints,
                         approximatedPoints: approximated,
                         confidence,
+                        labelName: item.label ?? null,
                     });
                 }
 
@@ -608,12 +618,18 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     return;
                 }
 
-                // auto-switch to points when something is already drawn
-                canvasInstance.interact({
-                    enabled: true,
-                    command: 'draw_points',
-                    settings: { crosshair: false },
-                });
+                // Only auto-switch to points if interactor expects points
+                // Box-only interactors should not switch to point mode
+                const expectsPoints = minPosPoints > 0 || minNegPoints > 0;
+
+                if (expectsPoints && boxes.length > 0) {
+                    // auto-switch to points when something is already drawn
+                    canvasInstance.interact({
+                        enabled: true,
+                        command: 'draw_points',
+                        settings: { crosshair: false },
+                    });
+                }
 
                 if (posPoints.length < minPosPoints || negPoints.length < minNegPoints) {
                     // there should be enough points to proceed
@@ -968,15 +984,6 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             return;
         }
 
-        const common = {
-            frame,
-            objectType: ObjectType.SHAPE,
-            source: core.enums.Source.SEMI_AUTO,
-            label: labels.find((label) => label.id === activeLabelID as number) as Label,
-            occluded: false,
-            zOrder: curZOrder,
-        };
-
         const objectsToConstruct = this.interaction.latestResponse.filter(
             ({ confidence }) => typeof confidence !== 'number' || confidence >= thresholdValue,
         );
@@ -985,23 +992,55 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         if (convertMasksToPolygons) {
             objects = objectsToConstruct
                 .filter(({ approximatedPoints }) => approximatedPoints.length >= 3)
-                .map(({ approximatedPoints }) => (
-                    new core.classes.ObjectState({
+                .map(({ approximatedPoints, labelName }) => {
+                    // Resolve label: use per-shape labelName if provided,
+                    // otherwise fall back to activeLabelID
+                    const label = labelName ?
+                        labels.find((l) => l.name === labelName) ||
+                        labels.find((l) => l.id === activeLabelID as number) :
+                        labels.find((l) => l.id === activeLabelID as number);
+
+                    const common = {
+                        frame,
+                        objectType: ObjectType.SHAPE,
+                        source: core.enums.Source.SEMI_AUTO,
+                        label: label as Label,
+                        occluded: false,
+                        zOrder: curZOrder,
+                    };
+
+                    return new core.classes.ObjectState({
                         shapeType: ShapeType.POLYGON,
                         points: approximatedPoints.flat(),
                         ...common,
-                    })
-                ));
+                    });
+                });
         } else {
             objects = objectsToConstruct
                 .filter(({ rle }) => rle.length >= 6) // minimal RLE length for a valid shape
-                .map(({ rle }) => (
-                    new core.classes.ObjectState({
+                .map(({ rle, labelName }) => {
+                    // Resolve label: use per-shape labelName if provided,
+                    // otherwise fall back to activeLabelID
+                    const label = labelName ?
+                        labels.find((l) => l.name === labelName) ||
+                        labels.find((l) => l.id === activeLabelID as number) :
+                        labels.find((l) => l.id === activeLabelID as number);
+
+                    const common = {
+                        frame,
+                        objectType: ObjectType.SHAPE,
+                        source: core.enums.Source.SEMI_AUTO,
+                        label: label as Label,
+                        occluded: false,
+                        zOrder: curZOrder,
+                    };
+
+                    return new core.classes.ObjectState({
                         shapeType: ShapeType.MASK,
                         points: Array.from(rle),
                         ...common,
-                    })
-                ));
+                    });
+                });
         }
         createAnnotations(objects);
     }
@@ -1172,6 +1211,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         const minNegVertices = activeInteractor?.params?.canvas?.minNegVertices ?? -1;
         const renderStartWithBox = activeInteractor?.params?.canvas?.startWithBoxOptional ?? false;
+        const hasMappableLabels = activeInteractor && activeInteractor.labels && activeInteractor.labels.length > 0;
 
         const renderedInteractorExtras = interactorExtras
             .sort((a, b) => a.data.weight - b.data.weight)
@@ -1193,6 +1233,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             style={{ width: '100%' }}
                             defaultValue={interactors[0].name}
                             onChange={this.setActiveInteractor}
+                            className='cvat-interactor-selector'
                         >
                             {interactors.map(
                                 (interactor: MLModel): JSX.Element => (
@@ -1222,6 +1263,19 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         </Popover>
                     </Col>
                 </Row>
+
+                {hasMappableLabels && activeInteractor && (
+                    <InteractorLabelMapper
+                        interactor={activeInteractor}
+                        labels={labels}
+                        onMappingChange={(mapping) => {
+                            this.setState({ interactorMapping: mapping });
+                        }}
+                    />
+                )}
+
+                {!hasMappableLabels && this.renderLabelBlock()}
+
                 <div className='cvat-tools-interactor-setups'>
                     <div>
                         <Switch
@@ -1257,9 +1311,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             className='cvat-tools-interact-button'
                             disabled={!activeInteractor ||
                                 fetching ||
-                                activeInteractor.version < MIN_SUPPORTED_INTERACTOR_VERSION}
+                                activeInteractor.version < MIN_SUPPORTED_INTERACTOR_VERSION ||
+                                (!hasMappableLabels && !activeLabelID)}
                             onClick={() => {
-                                if (activeInteractor && activeLabelID && labels.length) {
+                                if (activeInteractor && labels.length && (hasMappableLabels || activeLabelID)) {
                                     this.setState({ mode: 'interaction' });
                                     canvasInstance.cancel();
                                     const startWithBox = activeInteractor.params.canvas.startWithBoxOptional ? (

@@ -14,6 +14,7 @@ import { mask2Rle } from './rle-utils';
 
 type InteractorShape = Pick<SerializedShape, 'group' | 'source' | 'attributes' | 'occluded' | 'rotation' | 'type'> & {
     points: Int32Array;
+    label?: string;
 };
 
 // This type is compatible with our SerializedCollection, however the client only supports it partly
@@ -134,6 +135,7 @@ class LambdaManager {
                         occluded: typeof item.occluded === 'boolean' ? item.occluded : false,
                         rotation: typeof item.rotation === 'number' ? item.rotation : 0,
                         type: item.type ?? ShapeType.MASK,
+                        ...(typeof item.label === 'string' ? { label: item.label } : {}),
                     })).filter((item) => item.type === ShapeType.MASK),
                 };
             }
