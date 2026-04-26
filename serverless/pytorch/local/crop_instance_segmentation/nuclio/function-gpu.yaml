@@ -1,0 +1,68 @@
+metadata:
+  name: pth-local-crop-yolo-interactor
+  namespace: cvat
+  annotations:
+    name: Crop YOLO Interactor
+    version: 2
+    type: interactor
+    framework: pytorch
+    spec: |
+      [
+        {"id": 0, "name": "mild_crack", "type": "mask"},
+        {"id": 1, "name": "spall", "type": "mask"}
+      ]
+    min_pos_points: 0
+    min_neg_points: 0
+    startswith_box: true
+    help_message: Draw a crop box, run local YOLO segmentation on that ROI, and create mapped masks in the full image.
+
+spec:
+  description: Box-only crop-driven instance segmentation with a local Ultralytics model
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 60s
+  env:
+    - name: PYTHONPATH
+      value: /opt/nuclio/crop_interactor
+    - name: MODEL_WEIGHTS_PATH
+      value: /data/projects/bridge_defect_detection/runs/example-yolo/best.pt
+    - name: MODEL_INPUT_SIZE
+      value: '640'
+    - name: MODEL_CONF_THRESHOLD
+      value: '0.2'
+  build:
+    image: cvat.local.crop.instance.segmentation:latest-gpu
+    baseImage: ultralytics/ultralytics:latest
+    directives:
+      preCopy:
+        - kind: WORKDIR
+          value: /opt/nuclio/crop_interactor
+        - kind: RUN
+          value: apt-get update && apt-get -y install python3 python3-pip && rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: python -m pip install --upgrade pip setuptools wheel pillow
+  volumes:
+    - volume:
+        name: bridge-defect-detection
+        hostPath:
+          path: "/data/projects/bridge_defect_detection"
+      volumeMount:
+        name: bridge-defect-detection
+        mountPath: "/data"
+        readOnly: true
+  triggers:
+    myHttpTrigger:
+      kind: 'http'
+      numWorkers: 1
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume
