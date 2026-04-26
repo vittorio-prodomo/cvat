@@ -1,8 +1,8 @@
 # Copilot State Files Conversion Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> NOTE: This document is a historical/session record. The conversion described here was executed during the session that produced these files. `.github/copilot-instructions.md` has already been created in this worktree. The `CLAUDE.md` referenced below was a transient, session-created file and is no longer present in branch history. The remaining steps below are preserved as a record of what was executed.
 
-Note: the `CLAUDE.md` referenced below was a transient, session-created worktree file and was not a tracked repository file in this branch.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Claude-oriented state files in this worktree with `.github/copilot-instructions.md` and remove the file-based memory layer.
 
@@ -26,7 +26,7 @@ Note: the `CLAUDE.md` referenced below was a transient, session-created worktree
 
 **Files:**
 - Create: `.github/copilot-instructions.md`
-- Source: `CLAUDE.md:1-55`
+- Source: transient session-created `CLAUDE.md:1-55` (snapshot; not present in branch history)
 
 - [ ] **Step 1: Write the new instructions file**
 

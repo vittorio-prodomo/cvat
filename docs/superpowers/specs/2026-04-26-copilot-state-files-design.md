@@ -9,7 +9,7 @@ description: Replace Claude-oriented state files with GitHub Copilot-native repo
 
 The worktree currently contains `CLAUDE.md`, `MEMORY.md`, and `memory/*.md` files created from a Claude-oriented state-sync workflow. That does not map cleanly to GitHub Copilot.
 
-Note: the referenced `CLAUDE.md` was a transient, session-created worktree file and was not a tracked repository file in this branch.
+Note: The conversion described in this spec has already been completed in this worktree; `.github/copilot-instructions.md` now exists. The referenced `CLAUDE.md` was a transient, session-created worktree file and was not a tracked repository file in this branch.
 
 GitHub Copilot's repository-native instruction surface is `.github/copilot-instructions.md`. GitHub Copilot Memory is a separate repository-scoped feature managed on GitHub, not a file-backed surface in the repository.
 
