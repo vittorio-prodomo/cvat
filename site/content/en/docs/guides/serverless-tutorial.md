@@ -233,6 +233,14 @@ You only need to run the `serverless/deploy_gpu.sh` script, which executes the
 same commands but utilizes the `function-gpu.yaml` configuration file instead of `function.yaml`.
 See the following sections for details on the differences.
 
+### Crop-driven local instance segmentation interactor
+
+This interactor is intended for tiled-instance-segmentation workflows on high-resolution
+images. Unlike SAM-style interactors, it is box-only: the selected bounding box defines
+the ROI sent to the model. The function resizes the crop with aspect-ratio-preserving
+letterboxing, clips predictions that land in padding, and creates mapped mask
+annotations back in the full image space.
+
 _Note: Please do not run several GPU functions at the same time. In many cases, it will not work out of the box.
 For now, you should manually schedule different functions on different GPUs and it requires source code modification.
 Nuclio autoscaler does not support the local platform (docker)._
