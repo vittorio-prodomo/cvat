@@ -2,7 +2,7 @@
 
 > NOTE: This document is a historical/session record. The conversion described here was executed during the session that produced these files. `.github/copilot-instructions.md` has already been created in this worktree. The `CLAUDE.md` referenced below was a transient, session-created file and is no longer present in branch history. The remaining steps below are preserved as a record of what was executed.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers (archived from executed plan):** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. This header is preserved from the executed plan for historical record; steps below are recorded using checkbox (`- [x]`) syntax.
 
 **Goal:** Replace Claude-oriented state files in this worktree with `.github/copilot-instructions.md` and remove the file-based memory layer.
 
@@ -28,7 +28,7 @@
 - Create: `.github/copilot-instructions.md`
 - Source: transient session-created `CLAUDE.md:1-55` (snapshot; not present in branch history)
 
-- [ ] **Step 1: Write the new instructions file**
+- [x] **Step 1: Write the new instructions file**
 
 ```md
 # GitHub Copilot Instructions
@@ -64,7 +64,7 @@
 - Headless Cypress interactor specs need AUT-native canvas events, a post-response finish event, and valid CVAT mask RLE mocks.
 ```
 
-- [ ] **Step 2: Create the file with the content above**
+- [x] **Step 2: Create the file with the content above**
 
 Run:
 
@@ -75,7 +75,7 @@ ${EDITOR:-vi} .github/copilot-instructions.md
 
 Expected: `.github/copilot-instructions.md` exists with the migrated repository guidance.
 
-- [ ] **Step 3: Verify the new file exists and is readable**
+- [x] **Step 3: Verify the new file exists and is readable**
 
 Run:
 
@@ -85,7 +85,7 @@ test -f .github/copilot-instructions.md && sed -n '1,120p' .github/copilot-instr
 
 Expected: the file prints the migrated instructions and exits successfully.
 
-- [ ] **Step 4: Commit the new instructions file**
+- [x] **Step 4: Commit the new instructions file**
 
 ```bash
 git add .github/copilot-instructions.md
@@ -102,14 +102,14 @@ git commit -m "docs: add copilot instructions"
 - Delete: `memory/cypress_interactor.md`
 - Delete: `memory/finding_runtime_landmines.md`
 
-- [ ] **Step 1: Delete the Claude-oriented files**
+- [x] **Step 1: Delete the Claude-oriented files**
 
 ```bash
 rm -f CLAUDE.md MEMORY.md
 rm -rf memory
 ```
 
-- [ ] **Step 2: Verify the files are gone**
+- [x] **Step 2: Verify the files are gone**
 
 Run:
 
@@ -121,7 +121,7 @@ Run:
 
 Expected: all commands succeed with no output.
 
-- [ ] **Step 3: Review the diff**
+- [x] **Step 3: Review the diff**
 
 Run:
 
@@ -131,7 +131,7 @@ git --no-pager diff -- .github/copilot-instructions.md CLAUDE.md MEMORY.md memor
 
 Expected: the diff shows the new Copilot instructions file and removal of the Claude-oriented files only.
 
-- [ ] **Step 4: Commit the removal**
+- [x] **Step 4: Commit the removal**
 
 ```bash
 git add -A .github/copilot-instructions.md CLAUDE.md MEMORY.md memory
@@ -144,7 +144,7 @@ git commit -m "docs: replace claude state files with copilot instructions"
 - Check: `.github/copilot-instructions.md`
 - Check: repository root state-file layout
 
-- [ ] **Step 1: Validate the final instruction surface**
+- [x] **Step 1: Validate the final instruction surface**
 
 Run:
 
@@ -157,7 +157,7 @@ test -f .github/copilot-instructions.md
 
 Expected: only `.github/copilot-instructions.md` remains.
 
-- [ ] **Step 2: Confirm the new file is the only Copilot-facing state file in the root**
+- [x] **Step 2: Confirm the new file is the only Copilot-facing state file in the root**
 
 Run:
 
@@ -171,7 +171,7 @@ Expected:
 ./.github/copilot-instructions.md
 ```
 
-- [ ] **Step 3: Review git status**
+- [x] **Step 3: Review git status**
 
 Run:
 
@@ -181,7 +181,7 @@ git status --short
 
 Expected: no unexpected file changes outside `.github/copilot-instructions.md` and the intended deletions.
 
-- [ ] **Step 4: Create the final docs commit**
+- [x] **Step 4: Create the final docs commit**
 
 ```bash
 git add -A .github/copilot-instructions.md CLAUDE.md MEMORY.md memory
