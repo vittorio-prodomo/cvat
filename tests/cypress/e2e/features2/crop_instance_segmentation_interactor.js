@@ -328,4 +328,117 @@ context('Crop instance segmentation interactor', () => {
             cy.get('.cvat-objects-sidebar-state-item').should('contain', 'car');
         });
     });
+
+    describe('Fast interactor switching', () => {
+        it('Should not send stale mapping when switching interactors', () => {
+            // Mock two different crop-based interactors with different labels
+            cy.intercept('GET', '/api/lambda/functions*', {
+                statusCode: 200,
+                body: {
+                    results: [
+                        {
+                            id: 'interactor-a',
+                            kind: 'interactor',
+                            description: 'Interactor A',
+                            version: 2,
+                            labels_v2: [
+                                { name: 'dog', type: 'mask' },
+                                { name: 'cat', type: 'mask' },
+                            ],
+                            params: {
+                                canvas: {
+                                    startWithBox: true,
+                                    minPosVertices: 0,
+                                    minNegVertices: 0,
+                                },
+                            },
+                        },
+                        {
+                            id: 'interactor-b',
+                            kind: 'interactor',
+                            description: 'Interactor B',
+                            version: 2,
+                            labels_v2: [
+                                { name: 'car', type: 'mask' },
+                                { name: 'person', type: 'mask' },
+                            ],
+                            params: {
+                                canvas: {
+                                    startWithBox: true,
+                                    minPosVertices: 0,
+                                    minNegVertices: 0,
+                                },
+                            },
+                        },
+                    ],
+                },
+            }).as('getSwitchingFunctions');
+
+            // Reload to pick up new mock
+            cy.reload();
+            cy.get('.cvat-canvas-container').should('exist');
+
+            // Open AI tools
+            cy.get('.cvat-tools-control').click();
+            cy.wait('@getSwitchingFunctions');
+
+            // Switch to interaction mode
+            cy.get('.cvat-tools-control-popover').within(() => {
+                cy.contains('Interaction').click();
+            });
+
+            // Select first interactor
+            cy.get('.cvat-interactor-selector').click();
+            cy.contains('[role="option"]', 'Interactor A').click();
+
+            // Wait for label mapper to appear
+            cy.get('.cvat-interactor-label-mapper-wrapper').should('exist');
+
+            // Now immediately switch to second interactor (simulate fast switching)
+            cy.get('.cvat-interactor-selector').click();
+            cy.contains('[role="option"]', 'Interactor B').click();
+
+            // Mock interactor B response
+            cy.intercept('POST', '/api/lambda/functions/interactor-b', (req) => {
+                // Critical check: mapping should be empty or only contain interactor B labels
+                if (req.body.mapping) {
+                    // If mapping exists, it should NOT contain dog/cat (interactor A labels)
+                    expect(req.body.mapping).to.not.have.property('dog');
+                    expect(req.body.mapping).to.not.have.property('cat');
+                }
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [
+                            {
+                                type: 'mask',
+                                label: 'car',
+                                points: [0, 0, 10, 10, 100, 100, 0, 99],
+                                group: 0,
+                                source: 'semi-auto',
+                                attributes: [],
+                                occluded: false,
+                                rotation: 0,
+                            },
+                        ],
+                    },
+                });
+            }).as('interactorBCall');
+
+            // Draw a box to trigger interaction immediately after switching
+            cy.get('.cvat-canvas-container').trigger('mousedown', 100, 100, { button: 0 });
+            cy.get('.cvat-canvas-container').trigger('mousemove', 300, 300);
+            cy.get('.cvat-canvas-container').trigger('mouseup', 300, 300);
+
+            // Wait for interactor call
+            cy.wait('@interactorBCall');
+
+            // Accept shape by pressing N
+            cy.get('body').type('n');
+
+            // Verify shape was created with correct label
+            cy.get('.cvat-objects-sidebar-state-item').should('contain', 'car');
+        });
+    });
 });

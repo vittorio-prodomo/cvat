@@ -664,6 +664,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         this.setState({
             activeInteractor: interactor,
+            interactorMapping: {},
         });
     };
 
