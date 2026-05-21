@@ -97,3 +97,35 @@ def test_handle_uses_crop_preprocessing_flow(monkeypatch):
     
     # Should have received a 504x504 preprocessed crop
     assert received_shape[0] == (504, 504, 3)
+
+
+def test_model_handler_passes_manifest_configured_checkpoint_paths_to_backend(monkeypatch):
+    """ModelHandler must pass CHECKPOINT_DIR and CONFIG_PATH env vars into RFDETRShapeBackend.
+    
+    This test verifies the spec-compliance gap fix: function-gpu.yaml advertises
+    CHECKPOINT_DIR and CONFIG_PATH pointing to /opt/bdd/..., but model_handler.py
+    was not wiring them through to the backend constructor.
+    """
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.3')
+    monkeypatch.setenv('CHECKPOINT_DIR', '/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints')
+    monkeypatch.setenv('CONFIG_PATH', '/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml')
+    
+    received_kwargs = {}
+    
+    class InspectorBackend:
+        def __init__(self, **kwargs):
+            received_kwargs.update(kwargs)
+        
+        def predict(self, image):
+            return []
+    
+    monkeypatch.setattr('model_handler.RFDETRShapeBackend', InspectorBackend)
+    
+    handler = ModelHandler()
+    
+    # Verify the backend received the manifest-configured paths from env
+    from pathlib import Path
+    assert received_kwargs['checkpoint_dir'] == Path('/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints')
+    assert received_kwargs['config_path'] == Path('/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml')
+    assert received_kwargs['conf_threshold'] == 0.3

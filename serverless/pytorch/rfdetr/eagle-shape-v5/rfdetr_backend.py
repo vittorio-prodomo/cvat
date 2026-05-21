@@ -170,6 +170,7 @@ class RFDETRShapeBackend:
     def __init__(
         self,
         checkpoint_dir: Path | None = None,
+        config_path: Path | None = None,
         conf_threshold: float = 0.2,
         _skip_mount_check: bool = False,
     ):
@@ -177,6 +178,7 @@ class RFDETRShapeBackend:
 
         Args:
             checkpoint_dir: Directory containing checkpoints (uses default if None)
+            config_path: Path to training config YAML (not currently used, reserved for future)
             conf_threshold: Confidence threshold for predictions
             _skip_mount_check: Internal flag to skip mount checks for testing
 
@@ -210,6 +212,9 @@ class RFDETRShapeBackend:
         checkpoint_dir = checkpoint_dir or self.DEFAULT_CHECKPOINT_DIR
         self.checkpoint_path = find_best_checkpoint(checkpoint_dir)
         self.conf_threshold = conf_threshold
+        
+        # Store config_path for potential future use (not currently used in model loading)
+        self.config_path = config_path or self.DEFAULT_CONFIG_PATH
 
         # Load model (deferred to avoid imports at module level)
         self._model = None

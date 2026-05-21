@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from rfdetr_backend import RFDETRShapeBackend
 from postprocess import (
@@ -15,9 +16,18 @@ class ModelHandler:
     def __init__(self):
         input_size = int(os.environ.get('MODEL_INPUT_SIZE', '504'))
         conf_threshold = float(os.environ.get('MODEL_CONF_THRESHOLD', '0.2'))
-        self.backend = RFDETRShapeBackend(
-            conf_threshold=conf_threshold,
-        )
+        
+        # Wire manifest-configured checkpoint and config paths from env
+        checkpoint_dir = os.environ.get('CHECKPOINT_DIR')
+        config_path = os.environ.get('CONFIG_PATH')
+        
+        backend_kwargs = {'conf_threshold': conf_threshold}
+        if checkpoint_dir:
+            backend_kwargs['checkpoint_dir'] = Path(checkpoint_dir)
+        if config_path:
+            backend_kwargs['config_path'] = Path(config_path)
+        
+        self.backend = RFDETRShapeBackend(**backend_kwargs)
         self.input_size = input_size
 
     def handle(self, *, image, obj_bbox, mapping):
