@@ -8,7 +8,7 @@ from model_handler import ModelHandler
 class DummyBackend:
     """Mock RF-DETR backend that returns predicted instances."""
     
-    def __init__(self, conf_threshold=0.2):
+    def __init__(self, conf_threshold=0.2, **kwargs):
         self.conf_threshold = conf_threshold
     
     def predict(self, image):
@@ -78,7 +78,7 @@ def test_handle_uses_crop_preprocessing_flow(monkeypatch):
     received_shape = []
     
     class InspectorBackend:
-        def __init__(self, conf_threshold=0.2):
+        def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
         def predict(self, image):
@@ -147,7 +147,7 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
     
     # Backend returns a full mask over the crop region
     class FullMaskBackend:
-        def __init__(self, conf_threshold=0.2):
+        def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
         def predict(self, image):
@@ -220,7 +220,7 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
     
     # Backend returns a full mask
     class FullMaskBackend:
-        def __init__(self, conf_threshold=0.2):
+        def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
         def predict(self, image):
