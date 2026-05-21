@@ -213,6 +213,7 @@ class RFDETRShapeBackend:
 
         # Load model (deferred to avoid imports at module level)
         self._model = None
+        self._postprocessor = None
         self._class_names = None
 
     def _load_model(self):
@@ -246,20 +247,24 @@ class RFDETRShapeBackend:
 
         self._model = model
 
-        # Load class names from config if available
-        # Default shape class names from echo-combined dataset
-        # Note: Background class is not included since predictions exclude it
+        # Initialize postprocessor for RF-DETR inference
+        from rfdetr.models.lwdetr import PostProcess
+        self._postprocessor = PostProcess(num_select=100, num_classes=11)
+
+        # Load class names from echo-combined shape dataset
+        # All 11 shape classes from the training config
         self._class_names = [
-            "concrete_spalling",
-            "concrete_exposed_bars",
-            "concrete_crack",
-            "steel_corrosion",
-            "steel_crack",
-            "steel_fatigue_crack",
-            "steel_bolt_corrosion",
-            "steel_rivet_corrosion",
-            "steel_fastener_corrosion",
-            "concrete_efflorescence",
+            "(A13) danno_urto",
+            "(C1) difetti_esecuzione",
+            "(C7) ammaloram_cls",
+            "(C8) venatura_ruggine_armature",
+            "(C9) fessure_distacchi_corr_staffe",
+            "(C10) fessure_distacchi_corr_arm_long",
+            "(C13) esposiz_arm_precompress",
+            "(C14) danno_urto",
+            "(C16) fessure_verticali",
+            "(C18) fessure_longitudinali",
+            "(C19) fessure_trasversali",
         ]
 
     def predict(self, image: np.ndarray) -> list[PredictedInstance]:
@@ -287,39 +292,45 @@ class RFDETRShapeBackend:
         with torch.no_grad():
             outputs = self._model(image_tensor)
 
-        # Extract predictions
-        # RF-DETR outputs: pred_logits (B, num_queries, num_classes)
-        #                  pred_masks (B, num_queries, H, W)
-        #                  pred_boxes (B, num_queries, 4)
-        pred_logits = outputs["pred_logits"][0]  # (num_queries, num_classes)
-        pred_masks = outputs.get("pred_masks")
-
-        # Get scores and class indices
-        scores = pred_logits.softmax(-1)
-        max_scores, class_indices = scores[:, :-1].max(-1)  # Exclude background class
-
-        # Filter by confidence threshold
-        keep = max_scores > self.conf_threshold
-        kept_scores = max_scores[keep]
-        kept_classes = class_indices[keep]
-
+        # Use RF-DETR's postprocessor for proper score handling, top-k selection,
+        # and mask upsampling to target image size
+        h, w = image.shape[:2]
+        target_sizes = torch.tensor([[h, w]])
+        
+        results = self._postprocessor(outputs, target_sizes)
+        
+        # Normalize to PredictedInstance format
         instances = []
-        if pred_masks is not None and keep.any():
-            kept_masks = pred_masks[0][keep]  # (N, H, W)
-
-            for mask, score, class_idx in zip(kept_masks, kept_scores, kept_classes):
-                class_name = self._class_names[class_idx.item()]
-                score_val = score.item()
-
-                # Convert mask to binary numpy array
-                mask_np = (mask > 0.5).cpu().numpy().astype(np.uint8)
-
-                instances.append(
-                    PredictedInstance(
-                        class_name=class_name,
-                        score=score_val,
-                        mask=mask_np,
-                    )
-                )
+        if len(results) > 0:
+            result = results[0]  # Batch size 1
+            scores = result["scores"]
+            labels = result["labels"]
+            masks = result.get("masks")
+            
+            if masks is not None:
+                # Filter by confidence threshold
+                keep = scores > self.conf_threshold
+                
+                if keep.any():
+                    kept_scores = scores[keep]
+                    kept_labels = labels[keep]
+                    kept_masks = masks[keep]
+                    
+                    for score, label, mask in zip(kept_scores, kept_labels, kept_masks):
+                        class_idx = label.item()
+                        class_name = self._class_names[class_idx]
+                        score_val = score.item()
+                        
+                        # Convert boolean mask to binary uint8 numpy array
+                        # mask is already upsampled to (H, W) by postprocessor
+                        mask_np = mask.cpu().numpy().astype(np.uint8)
+                        
+                        instances.append(
+                            PredictedInstance(
+                                class_name=class_name,
+                                score=score_val,
+                                mask=mask_np,
+                            )
+                        )
 
         return instances
