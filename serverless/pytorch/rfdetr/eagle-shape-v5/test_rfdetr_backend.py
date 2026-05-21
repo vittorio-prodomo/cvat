@@ -69,7 +69,6 @@ def test_load_checkpoint_state_dict_strips_lightning_model_prefix(tmp_path):
             "state_dict": {
                 "model.backbone.weight": np.array([1.0]),
                 "model.head.bias": np.array([2.0]),
-                "other.value": np.array([3.0]),
             }
         }
 
@@ -164,31 +163,96 @@ def test_load_checkpoint_state_dict_fails_on_incompatible_checkpoint(tmp_path):
         sys.modules['torch'].load = original_load
 
 
+def test_load_checkpoint_state_dict_rejects_mixed_key_formats(tmp_path):
+    """Mixed key formats should fail explicitly, not partially accepted."""
+    checkpoint = tmp_path / "epoch=001-map=0.1000.ckpt"
+    checkpoint.write_bytes(b"x")
+
+    def fake_torch_load(path, map_location=None, weights_only=False):
+        # Mixed checkpoint: some keys have model. prefix, some don't
+        return {
+            "state_dict": {
+                "model.backbone.weight": np.array([1.0]),
+                "model.head.bias": np.array([2.0]),
+                "optimizer.state": np.array([3.0]),  # No model. prefix
+                "other.value": np.array([4.0]),  # No model. prefix
+            }
+        }
+
+    original_load = sys.modules['torch'].load
+    sys.modules['torch'].load = fake_torch_load
+
+    try:
+        # Should raise an error because of mixed key formats
+        with pytest.raises(RuntimeError, match="mixed key formats|incompatible"):
+            load_checkpoint_state_dict(checkpoint)
+    finally:
+        sys.modules['torch'].load = original_load
+
+
 def test_normalize_rfdetr_predictions_to_instances():
-    """Test that mocked RF-DETR predictions normalize to class_name/score/mask instances."""
-    # Simulate RF-DETR output structure
-    # pred_logits shape: (num_queries, num_classes+1) with background as last class
-    # For 11 shape classes, we have 12 logits per query (11 classes + 1 background)
+    """Test that RF-DETR backend normalizes predictions to class_name/score/mask instances."""
+    # This test exercises the normalization logic by creating a helper function
+    # and testing it directly, ensuring we test the actual normalization path.
     
-    # Create mock predictions with 3 queries
-    # Query 0: concrete_spalling (class 0 in non-bg) with high score
-    # Query 1: steel_corrosion (class 3 in non-bg) with medium score
-    # Query 2: background (low score, should be filtered or handled correctly)
+    # First, let's refactor the backend to have a separate normalization helper
+    # For now, we'll test the predict method's normalization using comprehensive mocks
     
-    num_queries = 3
-    num_classes = 12  # 11 shape classes + 1 background
+    # We'll use a pytest approach: import backend, patch dependencies, call predict
+    from unittest.mock import Mock, patch, MagicMock
+    from rfdetr_backend import RFDETRShapeBackend
     
-    # Create logits where:
-    # Query 0: high score for class 0 (concrete_spalling in model output)
-    # Query 1: high score for class 3 (steel_corrosion in model output)
-    # Query 2: high score for background (class 11)
-    logits = np.zeros((num_queries, num_classes), dtype=np.float32)
-    logits[0, 0] = 5.0  # concrete_spalling (first non-bg class)
-    logits[1, 3] = 4.0  # steel_corrosion (fourth non-bg class)
-    logits[2, 11] = 6.0  # background
+    # Create mock torch tensors that behave correctly
+    class MockTensor:
+        def __init__(self, data):
+            self.data = np.array(data) if not isinstance(data, np.ndarray) else data
+        
+        def softmax(self, dim):
+            # Apply softmax along specified dimension
+            exp_data = np.exp(self.data - np.max(self.data, axis=dim, keepdims=True))
+            softmax_data = exp_data / np.sum(exp_data, axis=dim, keepdims=True)
+            return MockTensor(softmax_data)
+        
+        def max(self, dim):
+            # Return max values and indices
+            max_vals = np.max(self.data, axis=dim)
+            max_indices = np.argmax(self.data, axis=dim)
+            return MockTensor(max_vals), MockTensor(max_indices)
+        
+        def __getitem__(self, key):
+            # Handle tensor slicing
+            if isinstance(key, (tuple, slice, int)):
+                return MockTensor(self.data[key])
+            elif hasattr(key, 'data'):  # Another MockTensor (boolean mask)
+                return MockTensor(self.data[key.data])
+            return MockTensor(self.data[key])
+        
+        def __gt__(self, value):
+            return MockTensor(self.data > value)
+        
+        def any(self):
+            return np.any(self.data)
+        
+        def item(self):
+            # Return int for integer dtypes, float otherwise
+            val = self.data.item() if hasattr(self.data, 'item') else self.data
+            if self.data.dtype in [np.int32, np.int64, np.int16, np.int8]:
+                return int(val)
+            return float(val) if np.isscalar(val) else val
+        
+        def cpu(self):
+            return self
+        
+        def numpy(self):
+            return self.data
     
-    # Create mock masks (H=4, W=4 for simplicity)
-    masks = np.array([
+    # Create mock outputs
+    logits_data = np.zeros((1, 3, 12), dtype=np.float32)
+    logits_data[0, 0, 0] = 5.0  # concrete_spalling
+    logits_data[0, 1, 3] = 4.0  # steel_corrosion
+    logits_data[0, 2, 11] = 6.0  # background
+    
+    masks_data = np.array([[
         [[0.9, 0.8, 0.1, 0.0],
          [0.7, 0.9, 0.2, 0.1],
          [0.1, 0.2, 0.0, 0.0],
@@ -203,65 +267,89 @@ def test_normalize_rfdetr_predictions_to_instances():
          [0.1, 0.1, 0.1, 0.1],
          [0.1, 0.1, 0.1, 0.1],
          [0.1, 0.1, 0.1, 0.1]],
-    ], dtype=np.float32)
+    ]], dtype=np.float32)
     
-    # Expected class names (no background - only foreground classes)
-    class_names = [
-        "concrete_spalling",
-        "concrete_exposed_bars",
-        "concrete_crack",
-        "steel_corrosion",
-        "steel_crack",
-        "steel_fatigue_crack",
-        "steel_bolt_corrosion",
-        "steel_rivet_corrosion",
-        "steel_fastener_corrosion",
-        "concrete_efflorescence",
-    ]
+    mock_outputs = {
+        "pred_logits": MockTensor(logits_data),
+        "pred_masks": MockTensor(masks_data),
+    }
     
-    # Normalize predictions (this mimics the backend's predict logic)
-    # Apply softmax
-    exp_logits = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
-    scores = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
+    # Create mock model
+    mock_model = Mock()
+    mock_model.return_value = mock_outputs
     
-    # Get max scores excluding background (last column)
-    non_bg_scores = scores[:, :-1]
-    max_scores = np.max(non_bg_scores, axis=-1)
-    class_indices = np.argmax(non_bg_scores, axis=-1)
-    
-    # Filter by threshold (0.2)
-    conf_threshold = 0.2
-    keep = max_scores > conf_threshold
-    
-    instances = []
-    for i in np.where(keep)[0]:
-        # class_indices directly map to class_names (no background offset)
-        class_name = class_names[class_indices[i]]
-        score = float(max_scores[i])
-        mask = (masks[i] > 0.5).astype(np.uint8)
-        
-        instances.append(
-            PredictedInstance(
-                class_name=class_name,
-                score=score,
-                mask=mask,
+    # Create a mock backend with the model already loaded
+    with patch('rfdetr_backend.find_best_checkpoint') as mock_find_ckpt:
+        # Set up checkpoint path
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            checkpoint_dir = Path(tmp_dir) / "checkpoints"
+            checkpoint_dir.mkdir()
+            ckpt_path = checkpoint_dir / "epoch=001-map=0.5000.ckpt"
+            ckpt_path.write_bytes(b"x")
+            mock_find_ckpt.return_value = ckpt_path
+            
+            # Create backend instance
+            backend = RFDETRShapeBackend(
+                checkpoint_dir=checkpoint_dir,
+                conf_threshold=0.2,
+                _skip_mount_check=True,
             )
-        )
-    
-    # Validate results
-    assert len(instances) == 2  # Two queries pass threshold (not background)
-    
-    # First instance should be concrete_spalling
-    assert instances[0].class_name == "concrete_spalling"
-    assert instances[0].score > 0.5
-    assert instances[0].mask.shape == (4, 4)
-    assert instances[0].mask.dtype == np.uint8
-    assert instances[0].mask[0, 0] == 1  # Top-left should be 1 (0.9 > 0.5)
-    assert instances[0].mask[0, 3] == 0  # Top-right should be 0 (0.0 < 0.5)
-    
-    # Second instance should be steel_corrosion
-    assert instances[1].class_name == "steel_corrosion"
-    assert instances[1].score > 0.5
-    assert instances[1].mask.shape == (4, 4)
-    assert instances[1].mask[0, 2] == 1  # Should have high mask values
-    assert instances[1].mask[0, 0] == 0  # Should have low mask values
+            
+            # Directly set the model to bypass loading
+            backend._model = mock_model
+            backend._class_names = [
+                "concrete_spalling",
+                "concrete_exposed_bars",
+                "concrete_crack",
+                "steel_corrosion",
+                "steel_crack",
+                "steel_fatigue_crack",
+                "steel_bolt_corrosion",
+                "steel_rivet_corrosion",
+                "steel_fastener_corrosion",
+                "concrete_efflorescence",
+            ]
+            
+            # Create test image
+            test_image = np.random.randint(0, 255, (8, 8, 3), dtype=np.uint8)
+            
+            # Mock torch operations for image preprocessing
+            with patch('rfdetr_backend.torch') as mock_torch:
+                # Set up mock torch tensor operations
+                mock_torch.from_numpy = Mock(return_value=Mock(
+                    permute=Mock(return_value=Mock(
+                        float=Mock(return_value=Mock(
+                            __truediv__=Mock(return_value=Mock(
+                                __sub__=Mock(return_value=Mock(
+                                    __truediv__=Mock(return_value=Mock(
+                                        unsqueeze=Mock(return_value=Mock())
+                                    ))
+                                ))
+                            ))
+                        ))
+                    ))
+                ))
+                mock_torch.tensor = Mock(side_effect=lambda x: Mock(view=Mock(return_value=Mock(data=np.array(x)))))
+                mock_torch.no_grad = Mock(return_value=Mock(__enter__=Mock(), __exit__=Mock()))
+                
+                # Call predict - this exercises the actual normalization logic
+                instances = backend.predict(test_image)
+            
+            # Validate results
+            assert len(instances) == 2  # Two queries pass threshold (not background)
+            
+            # First instance should be concrete_spalling
+            assert instances[0].class_name == "concrete_spalling"
+            assert instances[0].score > 0.5
+            assert instances[0].mask.shape == (4, 4)
+            assert instances[0].mask.dtype == np.uint8
+            assert instances[0].mask[0, 0] == 1  # Top-left should be 1 (0.9 > 0.5)
+            assert instances[0].mask[0, 3] == 0  # Top-right should be 0 (0.0 < 0.5)
+            
+            # Second instance should be steel_corrosion
+            assert instances[1].class_name == "steel_corrosion"
+            assert instances[1].score > 0.5
+            assert instances[1].mask.shape == (4, 4)
+            assert instances[1].mask[0, 2] == 1  # Should have high mask values
+            assert instances[1].mask[0, 0] == 0  # Should have low mask values

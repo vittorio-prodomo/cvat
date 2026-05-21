@@ -119,17 +119,29 @@ def load_checkpoint_state_dict(checkpoint_path: Path) -> dict:
     # Strip 'model.' prefix from Lightning checkpoint keys
     state_dict = {}
     has_model_prefix = False
+    has_non_model_prefix = False
+    
     for key, value in checkpoint["state_dict"].items():
         if key.startswith("model."):
             has_model_prefix = True
             stripped_key = key[len("model."):]
             state_dict[stripped_key] = value
+        else:
+            has_non_model_prefix = True
 
     # Fail explicitly if no keys had the model. prefix
     if not has_model_prefix:
         raise RuntimeError(
             f"No keys in checkpoint {checkpoint_path} start with 'model.' prefix. "
             f"This checkpoint may not be a Lightning checkpoint or is incompatible."
+        )
+    
+    # Fail explicitly if we have mixed key formats
+    if has_model_prefix and has_non_model_prefix:
+        raise RuntimeError(
+            f"Checkpoint {checkpoint_path} contains mixed key formats "
+            f"(some with 'model.' prefix, some without). "
+            f"This checkpoint is incompatible or corrupted."
         )
 
     return state_dict
