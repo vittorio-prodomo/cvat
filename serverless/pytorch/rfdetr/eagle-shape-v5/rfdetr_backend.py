@@ -34,10 +34,26 @@ def parse_map_score(filename: str) -> float:
     Returns:
         mAP score if found, otherwise -1.0
     """
-    match = re.search(r"-map=([\d.]+)\.ckpt$", filename)
+    # Require exact epoch=...-map=...ckpt format
+    match = re.search(r"^epoch=\d+-map=([\d.]+)\.ckpt$", filename)
     if match:
         return float(match.group(1))
     return -1.0
+
+
+def parse_epoch_number(filename: str) -> int:
+    """Parse epoch number from checkpoint filename (epoch=XXX-map=Y.YYYY.ckpt).
+
+    Args:
+        filename: Checkpoint filename to parse
+
+    Returns:
+        Epoch number if found, otherwise -1
+    """
+    match = re.search(r"^epoch=(\d+)-map=[\d.]+\.ckpt$", filename)
+    if match:
+        return int(match.group(1))
+    return -1
 
 
 def find_best_checkpoint(checkpoint_dir: Path) -> Path:
@@ -61,17 +77,18 @@ def find_best_checkpoint(checkpoint_dir: Path) -> Path:
     checkpoints = []
     for path in checkpoint_dir.glob("*.ckpt"):
         map_score = parse_map_score(path.name)
-        if map_score >= 0:
-            checkpoints.append((map_score, path))
+        epoch = parse_epoch_number(path.name)
+        if map_score >= 0 and epoch >= 0:
+            checkpoints.append((map_score, epoch, path))
 
     if not checkpoints:
         raise RuntimeError(
             f"No epoch=XXX-map=Y.YYYY.ckpt files found in {checkpoint_dir}"
         )
 
-    # Sort by mAP score descending and return the highest
-    checkpoints.sort(key=lambda x: x[0], reverse=True)
-    return checkpoints[0][1]
+    # Sort by mAP score descending, then by epoch descending for ties
+    checkpoints.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return checkpoints[0][2]
 
 
 def load_checkpoint_state_dict(checkpoint_path: Path) -> dict:
@@ -85,7 +102,7 @@ def load_checkpoint_state_dict(checkpoint_path: Path) -> dict:
 
     Raises:
         KeyError: If checkpoint doesn't contain 'state_dict' key
-        RuntimeError: If torch is not available
+        RuntimeError: If torch is not available or checkpoint is incompatible
     """
     if torch is None:
         raise RuntimeError("torch is not installed")
@@ -101,10 +118,19 @@ def load_checkpoint_state_dict(checkpoint_path: Path) -> dict:
 
     # Strip 'model.' prefix from Lightning checkpoint keys
     state_dict = {}
+    has_model_prefix = False
     for key, value in checkpoint["state_dict"].items():
         if key.startswith("model."):
+            has_model_prefix = True
             stripped_key = key[len("model."):]
             state_dict[stripped_key] = value
+
+    # Fail explicitly if no keys had the model. prefix
+    if not has_model_prefix:
+        raise RuntimeError(
+            f"No keys in checkpoint {checkpoint_path} start with 'model.' prefix. "
+            f"This checkpoint may not be a Lightning checkpoint or is incompatible."
+        )
 
     return state_dict
 
@@ -203,15 +229,15 @@ class RFDETRShapeBackend:
 
         # Build model and load weights
         model = build_model(args)
-        model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict, strict=True)
         model.eval()
 
         self._model = model
 
         # Load class names from config if available
         # Default shape class names from echo-combined dataset
+        # Note: Background class is not included since predictions exclude it
         self._class_names = [
-            "background",
             "concrete_spalling",
             "concrete_exposed_bars",
             "concrete_crack",
