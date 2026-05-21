@@ -241,6 +241,9 @@ class RFDETRShapeBackend:
         from rfdetr.main import populate_args
         args = populate_args(**cfg_dict)
 
+        # Store args for postprocessor configuration
+        self._args = args
+
         # Resolve device from args
         device = torch.device(args.device)
         self._device = device
@@ -256,8 +259,9 @@ class RFDETRShapeBackend:
         self._model = model
 
         # Initialize postprocessor for RF-DETR inference
+        # Use config's num_select (200 for large) instead of hardcoding 100
         from rfdetr.models.lwdetr import PostProcess
-        self._postprocessor = PostProcess(num_select=100)
+        self._postprocessor = PostProcess(num_select=self._args.num_select)
 
         # Load class names from echo-combined shape dataset
         # All 11 shape classes from the training config

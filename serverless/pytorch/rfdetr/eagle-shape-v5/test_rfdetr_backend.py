@@ -509,6 +509,9 @@ def test_model_is_moved_to_device_after_loading(mock_torch, tmp_path):
             # populate_args should set device from config
             if not hasattr(self, 'device'):
                 self.device = 'cuda:0'
+            # Ensure num_select is set (RF-DETR default)
+            if not hasattr(self, 'num_select'):
+                self.num_select = 200
     
     fake_rfdetr_main.populate_args = lambda **kwargs: FakeArgs(**kwargs)
     
@@ -639,6 +642,9 @@ def test_predict_tensors_use_model_device(mock_torch, tmp_path):
                 setattr(self, k, v)
             if not hasattr(self, 'device'):
                 self.device = 'cuda:0'
+            # Ensure num_select is set (RF-DETR default)
+            if not hasattr(self, 'num_select'):
+                self.num_select = 200
     
     fake_rfdetr_main.populate_args = lambda **kwargs: FakeArgs(**kwargs)
     
@@ -658,6 +664,137 @@ def test_predict_tensors_use_model_device(mock_torch, tmp_path):
         # The fix: tensors should be moved to self._device
         assert len(tensor_devices) > 0, "No tensors passed to model!"
         assert tensor_devices[0] == "cuda:0", f"Expected tensor on cuda:0, got {tensor_devices[0]}"
+        
+    finally:
+        # Cleanup
+        sys.modules['torch'].load = original_load
+        for module in ['rfdetr', 'rfdetr.models', 'rfdetr.models.lwdetr', 'rfdetr.config', 'rfdetr.main']:
+            if module in sys.modules:
+                del sys.modules[module]
+
+
+def test_postprocess_uses_config_num_select(mock_torch, tmp_path):
+    """Test that PostProcess is initialized with args.num_select from config.
+    
+    This test will FAIL if the backend hardcodes num_select=100 instead of
+    using the RF-DETR config's num_select (which defaults to 200 for large).
+    
+    Following the training-toolkit adapter pattern:
+    PostProcess(num_select=self._args.num_select)
+    """
+    from rfdetr_backend import RFDETRShapeBackend
+    import sys
+    
+    # Create mock checkpoint
+    checkpoints = tmp_path / "checkpoints"
+    checkpoints.mkdir()
+    (checkpoints / "epoch=001-map=0.1000.ckpt").write_bytes(b"x")
+    
+    # Track PostProcess initialization
+    postprocess_num_select = []
+    
+    class MockModel:
+        def load_state_dict(self, state_dict, strict=True):
+            pass
+        
+        def eval(self):
+            return self
+        
+        def to(self, device):
+            return self
+        
+        def __call__(self, x):
+            return {
+                "pred_logits": mock_torch.tensor([[0.9, 0.1]]),
+                "pred_boxes": mock_torch.tensor([[0.5, 0.5, 0.2, 0.2]]),
+                "pred_masks": mock_torch.tensor([[[[1, 0], [0, 1]]]]),
+            }
+    
+    def fake_torch_load(path, map_location=None, weights_only=False):
+        return {
+            "state_dict": {
+                "model.backbone.weight": np.array([1.0]),
+            }
+        }
+    
+    def fake_build_model(args):
+        return MockModel()
+    
+    # Patch torch.load
+    original_load = sys.modules['torch'].load
+    sys.modules['torch'].load = fake_torch_load
+    
+    # Patch build_model by injecting into sys.modules
+    fake_rfdetr_module = type(sys)('rfdetr')
+    fake_rfdetr_models = type(sys)('rfdetr.models')
+    fake_rfdetr_models_lwdetr = type(sys)('rfdetr.models.lwdetr')
+    fake_rfdetr_config = type(sys)('rfdetr.config')
+    fake_rfdetr_main = type(sys)('rfdetr.main')
+    
+    sys.modules['rfdetr'] = fake_rfdetr_module
+    sys.modules['rfdetr.models'] = fake_rfdetr_models
+    sys.modules['rfdetr.models.lwdetr'] = fake_rfdetr_models_lwdetr
+    sys.modules['rfdetr.config'] = fake_rfdetr_config
+    sys.modules['rfdetr.main'] = fake_rfdetr_main
+    
+    # Add build_model to module
+    fake_rfdetr_models_lwdetr.build_model = fake_build_model
+    
+    # Add PostProcess with tracking
+    class FakePostProcess:
+        def __init__(self, num_select=300):
+            """Track num_select initialization."""
+            postprocess_num_select.append(num_select)
+            self.num_select = num_select
+        
+        def __call__(self, outputs, target_sizes):
+            return []
+    
+    fake_rfdetr_models_lwdetr.PostProcess = FakePostProcess
+    
+    # Add config class with num_select=200 (RF-DETR large default)
+    class FakeConfig:
+        def dict(self):
+            return {
+                "num_classes": 11,
+                "device": "cpu",
+                "num_select": 200,  # RF-DETR large default
+            }
+    
+    fake_rfdetr_config.RFDETRSegLargeConfig = FakeConfig
+    
+    # Add populate_args that preserves num_select
+    class FakeArgs:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+            if not hasattr(self, 'device'):
+                self.device = 'cpu'
+            # Ensure num_select is set from config
+            if not hasattr(self, 'num_select'):
+                self.num_select = 200
+    
+    fake_rfdetr_main.populate_args = lambda **kwargs: FakeArgs(**kwargs)
+    
+    try:
+        # Create backend and trigger model loading
+        backend = RFDETRShapeBackend(
+            checkpoint_dir=checkpoints,
+            _skip_mount_check=True,
+        )
+        
+        # Access _load_model to trigger loading
+        backend._load_model()
+        
+        # Verify PostProcess was initialized with config's num_select (200), not hardcoded 100
+        # The bug: PostProcess(num_select=100) is hardcoded
+        # The fix: PostProcess(num_select=self._args.num_select) should be used
+        assert len(postprocess_num_select) > 0, "PostProcess was never initialized!"
+        assert postprocess_num_select[0] == 200, (
+            f"Expected PostProcess(num_select=200) from config, "
+            f"got num_select={postprocess_num_select[0]}. "
+            f"Backend should use self._args.num_select, not hardcode 100."
+        )
         
     finally:
         # Cleanup
