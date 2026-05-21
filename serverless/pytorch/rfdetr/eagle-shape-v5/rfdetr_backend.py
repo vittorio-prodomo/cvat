@@ -249,7 +249,7 @@ class RFDETRShapeBackend:
 
         # Initialize postprocessor for RF-DETR inference
         from rfdetr.models.lwdetr import PostProcess
-        self._postprocessor = PostProcess(num_select=100, num_classes=11)
+        self._postprocessor = PostProcess(num_select=100)
 
         # Load class names from echo-combined shape dataset
         # All 11 shape classes from the training config
@@ -322,8 +322,9 @@ class RFDETRShapeBackend:
                         score_val = score.item()
                         
                         # Convert boolean mask to binary uint8 numpy array
-                        # mask is already upsampled to (H, W) by postprocessor
-                        mask_np = mask.cpu().numpy().astype(np.uint8)
+                        # Postprocessor returns masks as [K, 1, H, W] after interpolation
+                        # Squeeze singleton channel dimension to get [H, W] for downstream crop postprocessing
+                        mask_np = mask.squeeze(0).cpu().numpy().astype(np.uint8)
                         
                         instances.append(
                             PredictedInstance(
