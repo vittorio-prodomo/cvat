@@ -129,3 +129,36 @@ def test_model_handler_passes_manifest_configured_checkpoint_paths_to_backend(mo
     assert received_kwargs['checkpoint_dir'] == Path('/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints')
     assert received_kwargs['config_path'] == Path('/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml')
     assert received_kwargs['conf_threshold'] == 0.3
+
+
+def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
+    """Regression test: partially out-of-frame bbox should be clipped, not crash.
+    
+    Reviewer evidence: with a 10x10 image and obj_bbox=[[-2,-2],[5,5]], 
+    ModelHandler.handle() crashes in project_mask_to_image() with a broadcasting 
+    ValueError. This test verifies that out-of-bounds bbox is clipped to image 
+    boundaries and produces valid shapes without crashing.
+    """
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    monkeypatch.setattr('model_handler.RFDETRShapeBackend', DummyBackend)
+    
+    handler = ModelHandler()
+    # 10x10 image with bbox partially out of frame
+    image = Image.fromarray(np.full((10, 10, 3), 255, dtype=np.uint8))
+    
+    # This should not crash - bbox should be clipped to [0,0] to [5,5]
+    shapes = handler.handle(
+        image=image,
+        obj_bbox=[[-2, -2], [5, 5]],
+        mapping={
+            '(A13) danno_urto': {'name': 'danno_urto_a13', 'attributes': {}},
+        },
+    )
+    
+    # Should produce valid shapes after clipping
+    assert len(shapes) == 1
+    assert shapes[0]['label'] == 'danno_urto_a13'
+    assert shapes[0]['type'] == 'mask'
+    # Mask RLE should be valid for 10x10 image
+    assert shapes[0]['points'][-4:] == [0, 0, 9, 9]

@@ -46,6 +46,13 @@ def mask_to_rle(mask: np.ndarray) -> list[int]:
 def prepare_crop(image: Image.Image, obj_bbox, target_size: int) -> PreparedCrop:
     left, top = map(int, obj_bbox[0])
     right, bottom = map(int, obj_bbox[1])
+    
+    # Clamp bbox to image boundaries to prevent out-of-bounds crashes
+    left = max(0, min(left, image.width - 1))
+    top = max(0, min(top, image.height - 1))
+    right = max(0, min(right, image.width - 1))
+    bottom = max(0, min(bottom, image.height - 1))
+    
     crop = image.crop((left, top, right + 1, bottom + 1)).convert('RGB')
     crop_array = np.asarray(crop, dtype=np.uint8)
     crop_height, crop_width = crop_array.shape[:2]
