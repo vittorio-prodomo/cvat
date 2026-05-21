@@ -53,6 +53,12 @@ def prepare_crop(image: Image.Image, obj_bbox, target_size: int) -> PreparedCrop
     right = max(0, min(right, image.width - 1))
     bottom = max(0, min(bottom, image.height - 1))
     
+    # Normalize corner order: ensure left <= right and top <= bottom
+    if left > right:
+        left, right = right, left
+    if top > bottom:
+        top, bottom = bottom, top
+    
     crop = image.crop((left, top, right + 1, bottom + 1)).convert('RGB')
     crop_array = np.asarray(crop, dtype=np.uint8)
     crop_height, crop_width = crop_array.shape[:2]

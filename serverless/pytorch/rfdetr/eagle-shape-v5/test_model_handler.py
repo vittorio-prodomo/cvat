@@ -138,10 +138,31 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
     ModelHandler.handle() crashes in project_mask_to_image() with a broadcasting 
     ValueError. This test verifies that out-of-bounds bbox is clipped to image 
     boundaries and produces valid shapes without crashing.
+    
+    STRENGTHENED: Now validates that the projected mask geometry is correct,
+    not just the RLE trailer.
     """
     monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
     monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
-    monkeypatch.setattr('model_handler.RFDETRShapeBackend', DummyBackend)
+    
+    # Backend returns a full mask over the crop region
+    class FullMaskBackend:
+        def __init__(self, conf_threshold=0.2):
+            pass
+        
+        def predict(self, image):
+            from rfdetr_backend import PredictedInstance
+            h, w = image.shape[:2]
+            mask = np.ones((h, w), dtype=np.uint8)
+            return [
+                PredictedInstance(
+                    class_name='(A13) danno_urto',
+                    score=0.9,
+                    mask=mask,
+                ),
+            ]
+    
+    monkeypatch.setattr('model_handler.RFDETRShapeBackend', FullMaskBackend)
     
     handler = ModelHandler()
     # 10x10 image with bbox partially out of frame
@@ -160,5 +181,94 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
     assert len(shapes) == 1
     assert shapes[0]['label'] == 'danno_urto_a13'
     assert shapes[0]['type'] == 'mask'
-    # Mask RLE should be valid for 10x10 image
-    assert shapes[0]['points'][-4:] == [0, 0, 9, 9]
+    
+    # Verify the projected mask covers the clipped crop region [0,0] to [5,5]
+    # The RLE encodes a mask - decode it to verify coverage
+    points = shapes[0]['points']
+    rle = points[:-4]  # Exclude trailer
+    width, height = points[-2] + 1, points[-1] + 1
+    assert (width, height) == (10, 10)
+    
+    # Decode RLE to verify mask covers the clipped region
+    decoded = np.zeros(width * height, dtype=np.uint8)
+    pos = 0
+    for i, count in enumerate(rle):
+        if i % 2 == 1:  # Odd indices are 1s
+            decoded[pos:pos + count] = 1
+        pos += count
+    decoded = decoded.reshape((height, width))
+    
+    # The mask should cover the clipped crop [0,0] to [5,5]
+    assert decoded[0:6, 0:6].sum() > 0, "Mask should cover clipped crop region"
+    # And nothing outside the crop should be covered
+    assert decoded[6:10, :].sum() == 0, "Mask should not extend beyond clipped crop"
+    assert decoded[:, 6:10].sum() == 0, "Mask should not extend beyond clipped crop"
+
+
+def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
+    """Regression test: inverted bbox corners should be normalized, not crash.
+    
+    Issue: prepare_crop() clamps bbox coordinates but never normalizes corner order.
+    Example failure: prepare_crop(img, [[8, 8], [3, 3]], 504) crashes because
+    PIL receives an inverted crop box (left > right, top > bottom).
+    
+    This test verifies that inverted bbox corners are normalized to 
+    [min_x, min_y], [max_x, max_y] before cropping.
+    """
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    
+    # Backend returns a full mask
+    class FullMaskBackend:
+        def __init__(self, conf_threshold=0.2):
+            pass
+        
+        def predict(self, image):
+            from rfdetr_backend import PredictedInstance
+            h, w = image.shape[:2]
+            mask = np.ones((h, w), dtype=np.uint8)
+            return [
+                PredictedInstance(
+                    class_name='(A13) danno_urto',
+                    score=0.9,
+                    mask=mask,
+                ),
+            ]
+    
+    monkeypatch.setattr('model_handler.RFDETRShapeBackend', FullMaskBackend)
+    
+    handler = ModelHandler()
+    # 20x20 image with inverted bbox: top-left at [8,8], bottom-right at [3,3]
+    image = Image.fromarray(np.full((20, 20, 3), 255, dtype=np.uint8))
+    
+    # This should not crash - bbox should be normalized to [[3,3], [8,8]]
+    shapes = handler.handle(
+        image=image,
+        obj_bbox=[[8, 8], [3, 3]],  # Inverted!
+        mapping={
+            '(A13) danno_urto': {'name': 'danno_urto_a13', 'attributes': {}},
+        },
+    )
+    
+    # Should produce valid shapes after normalization
+    assert len(shapes) == 1
+    assert shapes[0]['label'] == 'danno_urto_a13'
+    assert shapes[0]['type'] == 'mask'
+    
+    # Verify the mask covers the normalized region [3,3] to [8,8]
+    points = shapes[0]['points']
+    rle = points[:-4]
+    width, height = points[-2] + 1, points[-1] + 1
+    assert (width, height) == (20, 20)
+    
+    # Decode RLE
+    decoded = np.zeros(width * height, dtype=np.uint8)
+    pos = 0
+    for i, count in enumerate(rle):
+        if i % 2 == 1:
+            decoded[pos:pos + count] = 1
+        pos += count
+    decoded = decoded.reshape((height, width))
+    
+    # Mask should cover the normalized crop [3,3] to [8,8]
+    assert decoded[3:9, 3:9].sum() > 0, "Mask should cover normalized crop region"
