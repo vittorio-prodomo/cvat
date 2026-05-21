@@ -51,7 +51,7 @@ def test_function_gpu_declares_runtime_closure_for_rfdetr_imports():
     assert 'libxcb1' in manifest
     assert 'numpy<2' in manifest
     assert 'torchvision==0.16.0' in manifest
-    assert 'transformers==4.41.2' in manifest
+    assert 'transformers==4.42.0' in manifest
     assert 'peft==0.10.0' in manifest
     assert 'opencv-python-headless==4.10.0.84' in manifest
 
@@ -82,7 +82,7 @@ def test_function_gpu_declares_runtime_closure_for_rfdetr_imports():
     assert 'libxcb1' in manifest
     assert 'numpy<2' in manifest
     assert 'torchvision==0.16.0' in manifest
-    assert 'transformers==4.41.2' in manifest
+    assert 'transformers==4.42.0' in manifest
     assert 'peft==0.10.0' in manifest
     assert 'opencv-python-headless==4.10.0.84' in manifest
 
@@ -144,7 +144,7 @@ Replace the current `preCopy` install block in `serverless/pytorch/rfdetr/eagle-
             pycocotools
             scipy
             tqdm
-            "transformers==4.41.2"
+            "transformers==4.42.0"
             "peft==0.10.0"
             rf100vl
             "pydantic<3"
@@ -185,7 +185,7 @@ Apply the same build-directive block to `serverless/pytorch/rfdetr/eagle-stain-v
             pycocotools
             scipy
             tqdm
-            "transformers==4.41.2"
+            "transformers==4.42.0"
             "peft==0.10.0"
             rf100vl
             "pydantic<3"
@@ -259,7 +259,7 @@ cd /data/cvat && docker run --rm \
       pycocotools \
       scipy \
       tqdm \
-      "transformers==4.41.2" \
+      "transformers==4.42.0" \
       "peft==0.10.0" \
       rf100vl \
       "pydantic<3" \
@@ -335,7 +335,7 @@ Record in the task notes or session handoff that the following manifest pins wer
 ```text
 numpy<2
 torchvision==0.16.0
-transformers==4.41.2
+transformers==4.42.0
 peft==0.10.0
 opencv-python-headless==4.10.0.84
 libglib2.0-0
@@ -352,4 +352,3 @@ Do **not** upgrade the base image, rewrite the RF-DETR backend, or vendor the br
 - **Spec coverage:** The plan covers the approved design’s three requirements: keep the `/opt/bdd` mount contract, fix only image provisioning, and verify real checkpoint initialization for both shape and stain.
 - **Placeholder scan:** No `TBD`, `TODO`, or vague “handle appropriately” steps remain. All file paths, commands, package pins, and expected outputs are explicit.
 - **Type consistency:** The plan references the existing `RFDETRShapeBackend` and `RFDETRStainBackend` class names, current manifest file paths, and the exact test files already present in the repository.
-

@@ -32,6 +32,31 @@ def test_function_gpu_declares_rfdetr_interactor():
     assert 'rfdetr' in manifest.lower() or 'detr' in manifest.lower()
 
 
+def test_function_gpu_declares_runtime_closure_for_rfdetr_imports():
+    manifest = Path(__file__).with_name('function-gpu.yaml').read_text(encoding='utf-8')
+
+    for dependency in [
+        'libglib2.0-0',
+        'libgl1',
+        'libxcb1',
+        'numpy<2',
+        'torchvision==0.16.0',
+        'transformers==4.42.0',
+        'peft==0.10.0',
+        'opencv-python-headless==4.10.0.84',
+        'requests',
+        'pycocotools',
+        'scipy',
+        'tqdm',
+        'rf100vl',
+        'pydantic<3',
+        'supervision',
+        'matplotlib',
+        'roboflow',
+    ]:
+        assert dependency in manifest
+
+
 def test_function_gpu_mount_paths_consistent_with_opt_bdd():
     """Manifest mount paths, PYTHONPATH, and env-configured paths must all align on /opt/bdd container root.
     
