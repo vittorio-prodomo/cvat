@@ -1,7 +1,7 @@
-"""RF-DETR backend for eagle-shape-v5 crop interactor.
+"""RF-DETR backend for eagle-stain-v5 crop interactor.
 
 Provides checkpoint discovery, Lightning checkpoint loading, and prediction
-normalization for the RF-DETR shape detection model.
+normalization for the RF-DETR stain detection model.
 """
 import re
 import sys
@@ -138,18 +138,18 @@ def load_checkpoint_state_dict(checkpoint_path: Path) -> dict:
     return state_dict
 
 
-class RFDETRShapeBackend:
-    """RF-DETR backend for shape detection.
+class RFDETRStainBackend:
+    """RF-DETR backend for stain detection.
 
-    Loads the best checkpoint from the shape_round1 training run and provides
+    Loads the best checkpoint from the stain_round1 training run and provides
     prediction normalization for the crop interactor.
     """
 
     DEFAULT_CHECKPOINT_DIR = Path(
-        "/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints"
+        "/opt/bdd/runs/echo-combined-v5/stain_round1/checkpoints"
     )
     DEFAULT_CONFIG_PATH = Path(
-        "/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml"
+        "/opt/bdd/runs/echo-combined-v5/stain_round1/config.yaml"
     )
     TRAINING_TOOLKIT_PATH = Path(
         "/opt/bdd/training-toolkit/src"
@@ -226,10 +226,10 @@ class RFDETRShapeBackend:
         state_dict = load_checkpoint_state_dict(self.checkpoint_path)
 
         # Build model configuration matching training config
-        # (rf-detr-seg-large with 11 classes for shape detection)
+        # (rf-detr-seg-large with 3 classes for stain detection)
         config = RFDETRSegLargeConfig()
         cfg_dict = config.dict()
-        cfg_dict["num_classes"] = 11
+        cfg_dict["num_classes"] = 3
         cfg_dict["mask_downsample_ratio"] = 2
         cfg_dict["segmentation_head"] = True
 
@@ -259,20 +259,12 @@ class RFDETRShapeBackend:
         from rfdetr.models.lwdetr import PostProcess
         self._postprocessor = PostProcess(num_select=self._args.num_select)
 
-        # Load class names from echo-combined shape dataset
-        # All 11 shape classes from the training config
+        # Load class names from echo-combined stain dataset
+        # All 3 stain classes from the training config
         self._class_names = [
-            "(A13) danno_urto",
-            "(C1) difetti_esecuzione",
-            "(C7) ammaloram_cls",
-            "(C8) venatura_ruggine_armature",
-            "(C9) fessure_distacchi_corr_staffe",
-            "(C10) fessure_distacchi_corr_arm_long",
-            "(C13) esposiz_arm_precompress",
-            "(C14) danno_urto",
-            "(C16) fessure_verticali",
-            "(C18) fessure_longitudinali",
-            "(C19) fessure_trasversali",
+            "(C2) effloresc_essudaz_pop-out",
+            "(C5) infiltraz_cls",
+            "(C6) superf_bagn_dilav_percolaz",
         ]
 
     def predict(self, image: np.ndarray) -> list[PredictedInstance]:
