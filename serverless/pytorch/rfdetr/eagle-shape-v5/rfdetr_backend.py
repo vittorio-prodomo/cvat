@@ -155,16 +155,16 @@ class RFDETRShapeBackend:
     """
 
     DEFAULT_CHECKPOINT_DIR = Path(
-        "/data/projects/bridge_defect_detection/runs/echo-combined-v5/shape_round1/checkpoints"
+        "/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints"
     )
     DEFAULT_CONFIG_PATH = Path(
-        "/data/projects/bridge_defect_detection/runs/echo-combined-v5/shape_round1/config.yaml"
+        "/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml"
     )
     TRAINING_TOOLKIT_PATH = Path(
-        "/data/projects/bridge_defect_detection/training-toolkit/src"
+        "/opt/bdd/training-toolkit/src"
     )
     RFDETR_SRC_PATH = Path(
-        "/data/projects/bridge_defect_detection/rf-detr/src"
+        "/opt/bdd/rf-detr/src"
     )
 
     def __init__(

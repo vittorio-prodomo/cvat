@@ -803,3 +803,42 @@ def test_postprocess_uses_config_num_select(mock_torch, tmp_path):
             if module in sys.modules:
                 del sys.modules[module]
 
+
+def test_default_paths_match_manifest_opt_bdd_mount(mock_torch):
+    """Verify backend's default paths match the manifest's /opt/bdd mount.
+    
+    The manifest (function-gpu.yaml) mounts the host's /data/projects/bridge_defect_detection
+    to the container's /opt/bdd. The backend's default paths must use /opt/bdd, not the
+    host-side /data/projects/bridge_defect_detection path, because the backend runs inside
+    the Nuclio container where only /opt/bdd exists.
+    
+    This is a contract test: it ensures the backend's hardcoded defaults are consistent
+    with the manifest's volume mount configuration.
+    """
+    from rfdetr_backend import RFDETRShapeBackend
+    
+    # Expected paths from the manifest's /opt/bdd mount
+    expected_checkpoint_dir = Path("/opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints")
+    expected_config_path = Path("/opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml")
+    expected_training_toolkit = Path("/opt/bdd/training-toolkit/src")
+    expected_rfdetr_src = Path("/opt/bdd/rf-detr/src")
+    
+    # Verify the backend's class-level defaults match the manifest
+    assert RFDETRShapeBackend.DEFAULT_CHECKPOINT_DIR == expected_checkpoint_dir, (
+        f"DEFAULT_CHECKPOINT_DIR must be {expected_checkpoint_dir} to match manifest, "
+        f"got {RFDETRShapeBackend.DEFAULT_CHECKPOINT_DIR}"
+    )
+    assert RFDETRShapeBackend.DEFAULT_CONFIG_PATH == expected_config_path, (
+        f"DEFAULT_CONFIG_PATH must be {expected_config_path} to match manifest, "
+        f"got {RFDETRShapeBackend.DEFAULT_CONFIG_PATH}"
+    )
+    assert RFDETRShapeBackend.TRAINING_TOOLKIT_PATH == expected_training_toolkit, (
+        f"TRAINING_TOOLKIT_PATH must be {expected_training_toolkit} to match manifest, "
+        f"got {RFDETRShapeBackend.TRAINING_TOOLKIT_PATH}"
+    )
+    assert RFDETRShapeBackend.RFDETR_SRC_PATH == expected_rfdetr_src, (
+        f"RFDETR_SRC_PATH must be {expected_rfdetr_src} to match manifest, "
+        f"got {RFDETRShapeBackend.RFDETR_SRC_PATH}"
+    )
+
+
