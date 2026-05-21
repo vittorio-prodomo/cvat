@@ -215,6 +215,7 @@ class RFDETRShapeBackend:
         self._model = None
         self._postprocessor = None
         self._class_names = None
+        self._device = None
 
     def _load_model(self):
         """Lazily load the RF-DETR model from checkpoint."""
@@ -240,10 +241,17 @@ class RFDETRShapeBackend:
         from rfdetr.main import populate_args
         args = populate_args(**cfg_dict)
 
+        # Resolve device from args
+        device = torch.device(args.device)
+        self._device = device
+
         # Build model and load weights
         model = build_model(args)
         model.load_state_dict(state_dict, strict=True)
         model.eval()
+
+        # Move model to device (critical for GPU inference)
+        model.to(device)
 
         self._model = model
 
@@ -288,6 +296,9 @@ class RFDETRShapeBackend:
         # Add batch dimension
         image_tensor = image_tensor.unsqueeze(0)
 
+        # Move input tensor to model device
+        image_tensor = image_tensor.to(self._device)
+
         # Run inference
         with torch.no_grad():
             outputs = self._model(image_tensor)
@@ -295,7 +306,7 @@ class RFDETRShapeBackend:
         # Use RF-DETR's postprocessor for proper score handling, top-k selection,
         # and mask upsampling to target image size
         h, w = image.shape[:2]
-        target_sizes = torch.tensor([[h, w]])
+        target_sizes = torch.tensor([[h, w]]).to(self._device)
         
         results = self._postprocessor(outputs, target_sizes)
         
