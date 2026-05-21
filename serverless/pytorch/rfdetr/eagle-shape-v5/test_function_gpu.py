@@ -41,7 +41,7 @@ def test_function_gpu_declares_runtime_closure_for_rfdetr_imports():
         'libxcb1',
         'numpy<2',
         'torchvision==0.16.0',
-        'transformers==4.41.2',
+        'transformers==4.42.0',
         'peft==0.10.0',
         'opencv-python-headless==4.10.0.84',
         'requests',

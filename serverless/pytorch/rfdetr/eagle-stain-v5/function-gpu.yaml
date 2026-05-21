@@ -51,7 +51,7 @@ spec:
         - kind: RUN
           value: >-
             python -m pip install pillow pytorch-lightning 'numpy<2'
-            torchvision==0.16.0 requests pycocotools scipy tqdm transformers==4.41.2
+            torchvision==0.16.0 requests pycocotools scipy tqdm transformers==4.42.0
             peft==0.10.0 rf100vl 'pydantic<3' supervision matplotlib roboflow
             opencv-python-headless==4.10.0.84
   volumes:
