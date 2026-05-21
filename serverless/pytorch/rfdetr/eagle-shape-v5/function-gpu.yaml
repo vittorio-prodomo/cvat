@@ -32,7 +32,7 @@ spec:
   eventTimeout: 60s
   env:
     - name: PYTHONPATH
-      value: /opt/nuclio/rfdetr_interactor:/data/projects/bridge_defect_detection/training-toolkit/src:/data/projects/bridge_defect_detection/rf-detr/src
+      value: /opt/nuclio/rfdetr_interactor:/opt/bdd/training-toolkit/src:/opt/bdd/rf-detr/src
     - name: CHECKPOINT_DIR
       value: /opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints
     - name: CONFIG_PATH
@@ -59,15 +59,7 @@ spec:
           path: "/data/projects/bridge_defect_detection"
       volumeMount:
         name: bridge-defect-detection
-        mountPath: "/data"
-        readOnly: true
-    - volume:
-        name: bdd-runs
-        hostPath:
-          path: "/data/projects/bridge_defect_detection/runs/echo-combined-v5/shape_round1"
-      volumeMount:
-        name: bdd-runs
-        mountPath: "/opt/bdd/runs/echo-combined-v5/shape_round1"
+        mountPath: "/opt/bdd"
         readOnly: true
   triggers:
     myHttpTrigger:
