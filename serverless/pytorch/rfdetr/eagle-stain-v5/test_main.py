@@ -1,11 +1,31 @@
 import base64
+import importlib.util
 import io
 import json
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 from PIL import Image
 
-import main
+
+def load_main():
+    module_dir = Path(__file__).parent
+    sys.path.insert(0, str(module_dir))
+    try:
+        spec = importlib.util.spec_from_file_location(
+            'eagle_stain_v5_main',
+            module_dir / 'main.py',
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.pop(0)
+
+
+main = load_main()
 
 
 class DummyContext:
