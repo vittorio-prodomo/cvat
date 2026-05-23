@@ -241,6 +241,15 @@ the ROI sent to the model. The function resizes the crop with aspect-ratio-prese
 letterboxing, clips predictions that land in padding, and creates mapped mask
 annotations back in the full image space.
 
+The current local implementation uses an Ultralytics segmentation backend. Deploy it with:
+
+```bash
+serverless/deploy_gpu.sh serverless/pytorch/local/crop_instance_segmentation/nuclio
+```
+
+If you add more crop-driven backends later, prefer separate Nuclio directories and
+function metadata per backend so each model has its own deployable identity in CVAT.
+
 _Note: Please do not run several GPU functions at the same time. In many cases, it will not work out of the box.
 For now, you should manually schedule different functions on different GPUs and it requires source code modification.
 Nuclio autoscaler does not support the local platform (docker)._

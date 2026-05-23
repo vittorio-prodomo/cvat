@@ -23,7 +23,7 @@ to install Nuclio:
 ./serverless/deploy_cpu.sh serverless/pytorch/facebookresearch/sam/nuclio
 ./serverless/deploy_cpu.sh serverless/onnx/WongKinYiu/yolov7/nuclio
 HF_TOKEN=<your_hf_token> SAM3_MODEL_VERSION=sam3 ./serverless/deploy_gpu.sh serverless/pytorch/facebookresearch/sam3/nuclio
-./serverless/deploy_gpu.sh serverless/pytorch/local/crop_instance_segmentation/nuclio/function-gpu.yaml
+./serverless/deploy_gpu.sh serverless/pytorch/local/crop_instance_segmentation/nuclio
 ```
 
 - Display a list of running serverless functions using `nuctl` command or see them
