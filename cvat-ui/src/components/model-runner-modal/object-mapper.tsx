@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import React, {
-    useEffect, useLayoutEffect, useMemo, useRef, useState,
+    useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { Row, Col } from 'antd/lib/grid';
 import Select from 'antd/lib/select';
@@ -46,14 +46,15 @@ function ObjectMapperComponent(props: Props): JSX.Element {
         defaults: defaultMapping.map(([left, right]) => [getObjectName(left), getObjectName(right)]),
     }), [defaultMapping, getObjectName, leftData, rightData]);
     const previousSignature = useRef<string | null>(null);
+    const onUpdateMappingRef = useRef(onUpdateMapping);
 
-    const setMappingWrapper = (updated: Props['defaultMapping']): void => {
-        // if we prefer useEffect instead of this approach
-        // component will be rerendered first with extras that depends on parent state
-        // these extras will use outdated information in this case
-        onUpdateMapping(updated);
+    useEffect(() => {
+        onUpdateMappingRef.current = onUpdateMapping;
+    }, [onUpdateMapping]);
+
+    const updateMapping = useCallback((updated: Props['defaultMapping']): void => {
         setMapping(updated);
-    };
+    }, []);
 
     const notMappedLeft = leftData.filter((left) => !mapping.flat().includes(left));
     const notMappedRight = (): object[] => {
@@ -66,19 +67,23 @@ function ObjectMapperComponent(props: Props): JSX.Element {
     useLayoutEffect(() => {
         if (previousSignature.current !== mappingSignature) {
             previousSignature.current = mappingSignature;
-            setMappingWrapper(defaultMapping);
+            setMapping(defaultMapping);
             setLeftValue(null);
             setRightValue(null);
         }
     }, [defaultMapping, mappingSignature]);
 
+    useLayoutEffect(() => {
+        onUpdateMappingRef.current(mapping);
+    }, [mapping]);
+
     useEffect(() => {
         if (leftValue && rightValue) {
-            setMappingWrapper([...mapping, [leftValue, rightValue]]);
+            updateMapping([...mapping, [leftValue, rightValue]]);
             setLeftValue(null);
             setRightValue(null);
         }
-    }, [leftValue, rightValue]);
+    }, [leftValue, rightValue, mapping, updateMapping]);
 
     return (
         <div className={containerClassName}>
@@ -102,7 +107,7 @@ function ObjectMapperComponent(props: Props): JSX.Element {
                                 <CVATTooltip title={deleteMappingLabel}>
                                     <DeleteOutlined
                                         className='cvat-danger-circle-icon'
-                                        onClick={() => setMappingWrapper(
+                                        onClick={() => updateMapping(
                                             mapping.filter((_mapping) => mappingItem !== _mapping),
                                         )}
                                     />

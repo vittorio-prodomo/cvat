@@ -51,7 +51,7 @@ import ApproximationAccuracy, {
 } from 'components/annotation-page/standard-workspace/controls-side-bar/approximation-accuracy';
 import ConfidenceThreshold from 'components/annotation-page/standard-workspace/controls-side-bar/confidence-threshold';
 import { switchToolsBlockerState } from 'actions/settings-actions';
-import { computeAutoServerMapping, ServerMapping } from 'components/model-runner-modal/label-mapping-utils';
+import { ServerMapping } from 'components/model-runner-modal/label-mapping-utils';
 import InteractorLabelMapper from './interactor-label-mapper';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
@@ -405,7 +405,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
-        const { jobInstance, labels } = this.props;
+        const { jobInstance } = this.props;
         const { activeInteractor, fetching, interactorMapping } = this.state;
 
         const { id, latestRequest } = this.interaction;
@@ -429,10 +429,6 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             try {
                 // run server request
                 this.setState({ fetching: true });
-                const mapping = Object.keys(interactorMapping).length > 0 || !activeInteractor ?
-                    interactorMapping :
-                    computeAutoServerMapping(activeInteractor, labels);
-
                 await this.initializeOpenCV();
                 const response = await core.lambda.call(
                     jobInstance.taskId,
@@ -440,7 +436,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     {
                         ...data,
                         job: jobInstance.id,
-                        ...(Object.keys(mapping).length > 0 ? { mapping } : {}),
+                        ...(Object.keys(interactorMapping).length > 0 ? { mapping: interactorMapping } : {}),
                     },
                 ) as InteractorResults;
 
@@ -656,7 +652,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private setActiveInteractor = (value: string): void => {
         const { interactors } = this.props;
+        const { activeInteractor } = this.state;
         const [interactor] = interactors.filter((_interactor: MLModel) => _interactor.id === value);
+
+        if (activeInteractor?.id === interactor?.id) {
+            return;
+        }
 
         if (interactor.version < MIN_SUPPORTED_INTERACTOR_VERSION) {
             notification.warning({

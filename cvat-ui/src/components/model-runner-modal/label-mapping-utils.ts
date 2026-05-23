@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { Label, LabelType } from 'cvat-core-wrapper';
+import { Label } from 'cvat-core-wrapper';
 import { LabelInterface, FullMapping } from './labels-mapper';
 
 export type ServerMapping = Record<string, {
@@ -38,37 +38,6 @@ export function convertModelLabels(model: { labels: any[] }): LabelInterface[] {
     return model.labels;
 }
 
-export function labelsCompatible(modelLabel: LabelInterface, jobLabel: LabelInterface): boolean {
-    const { type: modelLabelType } = modelLabel;
-    const { type: jobLabelType } = jobLabel;
-    const compatibleTypes = [[LabelType.MASK, LabelType.POLYGON]];
-
-    return modelLabelType === jobLabelType ||
-        (jobLabelType === LabelType.ANY && modelLabelType !== LabelType.SKELETON) ||
-        (modelLabelType === LabelType.ANY && jobLabelType !== LabelType.SKELETON) ||
-        compatibleTypes.some((compatible) => compatible.includes(jobLabelType) && compatible.includes(modelLabelType));
-}
-
-export function computeLabelsAutoMapping(
-    modelLabels: LabelInterface[],
-    taskLabels: LabelInterface[],
-): [LabelInterface, LabelInterface][] {
-    const autoMapping: [LabelInterface, LabelInterface][] = [];
-
-    for (let i = 0; i < modelLabels.length; i++) {
-        for (let j = 0; j < taskLabels.length; j++) {
-            const modelLabel = modelLabels[i];
-            const taskLabel = taskLabels[j];
-
-            if (modelLabel.name === taskLabel.name && labelsCompatible(modelLabel, taskLabel)) {
-                autoMapping.push([modelLabel, taskLabel]);
-            }
-        }
-    }
-
-    return autoMapping;
-}
-
 export function convertMappingToServer(mapping: FullMapping): ServerMapping {
     return mapping.reduce<ServerMapping>((acc, [modelLabel, taskLabel, attributesMapping, subMapping]) => (
         {
@@ -85,11 +54,4 @@ export function convertMappingToServer(mapping: FullMapping): ServerMapping {
             },
         }
     ), {});
-}
-
-export function computeAutoServerMapping(model: { labels: any[] }, labels: Label[]): ServerMapping {
-    return convertMappingToServer(computeLabelsAutoMapping(
-        convertModelLabels(model),
-        convertTaskLabels(labels),
-    ).map(([modelLabel, taskLabel]) => [modelLabel, taskLabel, [], []]));
 }

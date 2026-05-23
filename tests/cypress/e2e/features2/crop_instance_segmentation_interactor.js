@@ -273,11 +273,12 @@ context('Crop instance segmentation interactor', () => {
     let createdTaskID = null;
 
     before(() => {
-        cy.visit('/auth/login');
-        cy.login();
+        cy.visit('/');
+        cy.headlessLogin({
+            nextURL: useExistingJob ? `/tasks/${envTaskID}/jobs/${envJobID}` : '/tasks',
+        });
 
         if (useExistingJob) {
-            cy.visit(`/tasks/${envTaskID}/jobs/${envJobID}`);
             cy.get('.cvat-canvas-container').should('exist');
             return;
         }
@@ -345,6 +346,12 @@ context('Crop instance segmentation interactor', () => {
             }).as('cropInteractorCall');
 
             startInteraction();
+            cy.window().should((win) => {
+                const toolsControlComponent = requireToolsControlComponent(win);
+
+                expect(toolsControlComponent.state.interactorMapping).to.have.property('car');
+                expect(toolsControlComponent.state.interactorMapping).to.have.property('person');
+            });
             drawBoxPrompt(100, 100, 300, 300);
 
             cy.wait('@cropInteractorCall');
@@ -388,6 +395,44 @@ context('Crop instance segmentation interactor', () => {
 
             cy.get('.cvat-objects-sidebar-state-item').should('have.length', 1);
             cy.get('.cvat-objects-sidebar-state-item').should('contain', 'car');
+        });
+
+        it('Should keep an empty edited mapping empty after deleting every auto-mapped row', () => {
+            openInteractorsWithModels([mappedCropInteractor], 'getEmptyEditedMappingFunctions');
+            selectInteractor(mappedCropInteractor.id);
+
+            ['car', 'person', 'bicycle'].forEach((labelName) => {
+                cy.contains('.cvat-runner-label-mapping-row', labelName).within(() => {
+                    cy.get('.cvat-danger-circle-icon').click();
+                });
+            });
+
+            cy.window().should((win) => {
+                const toolsControlComponent = requireToolsControlComponent(win);
+
+                expect(toolsControlComponent.state.interactorMapping).to.deep.equal({});
+            });
+
+            cy.intercept('POST', '**/api/lambda/functions/test-crop-interactor**', (req) => {
+                expect(req.body).to.not.have.property('mapping');
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [],
+                    },
+                });
+            }).as('emptyEditedMappingCall');
+
+            startInteraction();
+            cy.window().should((win) => {
+                const toolsControlComponent = requireToolsControlComponent(win);
+
+                expect(toolsControlComponent.state.interactorMapping).to.deep.equal({});
+            });
+            drawBoxPrompt(100, 100, 300, 300);
+
+            cy.wait('@emptyEditedMappingCall');
         });
     });
 
