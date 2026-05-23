@@ -8,24 +8,53 @@ from types import SimpleNamespace
 
 from PIL import Image
 
+MODULE_NAME = 'eagle_stain_v5_main'
+LOCAL_MODULE_NAMES = ('postprocess', 'rfdetr_backend', 'model_handler')
+
+
+def load_local_module(module_dir, module_name):
+    spec = importlib.util.spec_from_file_location(
+        f'{MODULE_NAME}_{module_name}',
+        module_dir / f'{module_name}.py',
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 def load_main():
     module_dir = Path(__file__).parent
+    saved_modules = {
+        module_name: sys.modules.get(module_name)
+        for module_name in LOCAL_MODULE_NAMES
+    }
     sys.path.insert(0, str(module_dir))
     try:
+        for module_name in LOCAL_MODULE_NAMES:
+            load_local_module(module_dir, module_name)
         spec = importlib.util.spec_from_file_location(
-            'eagle_stain_v5_main',
+            MODULE_NAME,
             module_dir / 'main.py',
         )
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
+        sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         return module
     finally:
         sys.path.pop(0)
+        for module_name, saved_module in saved_modules.items():
+            if saved_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = saved_module
 
 
 main = load_main()
+MODEL_HANDLER_PATH = Path(__file__).with_name('model_handler.py').resolve()
 
 
 class DummyContext:
@@ -117,3 +146,9 @@ def test_init_context_stores_model(monkeypatch):
     main.init_context(context)
 
     assert context.user_data.model is fake_model
+
+
+def test_main_uses_local_model_handler_module():
+    loaded_model_handler = sys.modules[main.ModelHandler.__module__]
+
+    assert Path(loaded_model_handler.__file__).resolve() == MODEL_HANDLER_PATH
