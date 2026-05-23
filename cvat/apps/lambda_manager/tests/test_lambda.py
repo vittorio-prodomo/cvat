@@ -6,6 +6,7 @@
 import json
 import os
 from collections import Counter
+from copy import deepcopy
 from itertools import groupby
 from unittest import mock, skip
 
@@ -33,6 +34,7 @@ id_function_reid_with_no_response_data = (
     "test-openvino-omz-intel-person-reidentification-retail-1234"
 )
 id_function_interactor = "test-openvino-dextr"
+id_function_interactor_with_labels = "test-openvino-dextr-with-labels"
 id_function_tracker = "test-pth-foolwood-siammask"
 id_function_tracker_with_supported_shape_types = "test-tracker-with-supported-shape-types"
 id_function_non_type = "test-model-has-non-type"
@@ -252,6 +254,15 @@ class LambdaTestCases(_LambdaTestCaseBase):
         self.assigneed_to_user_task = self._create_task(
             tasks["assigneed_to_user"], images_assigneed_to_user_task
         )
+
+    def _create_interactor_mapping_task(self):
+        task_spec = deepcopy(tasks["main"])
+        task_spec["labels"] = [
+            {"name": "person", "type": "mask"},
+            {"name": "bicycle", "type": "mask"},
+            {"name": "car", "type": "mask"},
+        ]
+        return self._create_task(task_spec, self._generate_task_images(1))
 
     def test_api_v2_lambda_functions_list(self):
         response = self._get_request(LAMBDA_FUNCTIONS_PATH, self.admin)
@@ -775,6 +786,71 @@ class LambdaTestCases(_LambdaTestCaseBase):
             f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor}", None, data=data_main_task
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_api_v2_lambda_functions_create_interactor_without_mapping_forwards_default_mapping(
+        self,
+    ):
+        captured_payload = {}
+        task = self._create_interactor_mapping_task()
+
+        def capturing_invoke(func, payload):
+            captured_payload.update(payload)
+            return []
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=capturing_invoke,
+        ):
+            data = {
+                "task": task["id"],
+                "frame": 0,
+                "pos_points": [[3.45, 6.78]],
+                "neg_points": [],
+                "obj_bbox": [[10, 10], [100, 100]],
+            }
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor_with_labels}",
+                self.admin,
+                data=data,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("mapping", captured_payload)
+        self.assertEqual(set(captured_payload["mapping"]), {"person", "bicycle", "car"})
+        self.assertEqual(captured_payload["mapping"]["car"]["name"], "car")
+
+    def test_api_v2_lambda_functions_create_interactor_forwards_explicit_mapping(self):
+        captured_payload = {}
+        task = self._create_interactor_mapping_task()
+        explicit_mapping = {
+            "car": {"name": "car", "attributes": {}},
+        }
+
+        def capturing_invoke(func, payload):
+            captured_payload.update(payload)
+            return []
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=capturing_invoke,
+        ):
+            data = {
+                "task": task["id"],
+                "frame": 0,
+                "pos_points": [[3.45, 6.78]],
+                "neg_points": [],
+                "obj_bbox": [[10, 10], [100, 100]],
+                "mapping": explicit_mapping,
+            }
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor_with_labels}",
+                self.admin,
+                data=data,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("mapping", captured_payload)
+        self.assertEqual(captured_payload["mapping"], explicit_mapping)
 
     def test_api_v2_lambda_functions_create_tracker(self):
         for id_func in [

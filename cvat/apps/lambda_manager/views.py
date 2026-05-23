@@ -457,6 +457,7 @@ class LambdaFunction:
         else:
             validate_labels_mapping(mapping, self.labels, task_labels)
 
+        payload_mapping = deepcopy(mapping)
         mapping = update_mapping(mapping, self.labels, task_labels)
 
         # Check job frame boundaries
@@ -484,6 +485,7 @@ class LambdaFunction:
                     "pos_points": mandatory_arg("pos_points"),
                     "neg_points": mandatory_arg("neg_points"),
                     "obj_bbox": data.get("obj_bbox", None),
+                    "mapping": payload_mapping,
                 }
             )
             text_prompts = data.get("text_prompts", None)

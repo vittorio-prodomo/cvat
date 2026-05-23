@@ -68,6 +68,27 @@
         "httpPort": 49157
       }
     },
+    "test-openvino-dextr-with-labels": {
+      "metadata": {
+        "name": "test-openvino-dextr-with-labels",
+        "annotations": {
+          "name": "DEXTR with labels",
+          "spec": "[\n  { \"id\": 0, \"name\": \"person\", \"type\": \"mask\" },\n  { \"id\": 1, \"name\": \"bicycle\", \"type\": \"mask\" },\n  { \"id\": 2, \"name\": \"car\", \"type\": \"mask\" }\n]\n",
+          "type": "interactor",
+          "version": "2",
+          "min_pos_points": "0",
+          "min_neg_points": "0",
+          "startswith_box": "true"
+        }
+      },
+      "spec": {
+        "description": "Deep Extreme Cut with labels"
+      },
+      "status": {
+        "state": "ready",
+        "httpPort": 49167
+      }
+    },
     "test-pth-foolwood-siammask": {
       "metadata": {
         "name": "test-pth-foolwood-siammask",
