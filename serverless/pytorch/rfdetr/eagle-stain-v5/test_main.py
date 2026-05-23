@@ -138,13 +138,20 @@ def test_handler_logs_request_summary():
     )
 
 
-def test_init_context_stores_model(monkeypatch):
+def test_init_context_passes_context_logger_into_model_handler(monkeypatch):
     fake_model = DummyModel()
-    monkeypatch.setattr(main, 'ModelHandler', lambda: fake_model)
+    received_logger = []
+
+    def fake_model_handler(*, logger):
+        received_logger.append(logger)
+        return fake_model
+
+    monkeypatch.setattr(main, 'ModelHandler', fake_model_handler)
     context = DummyContext()
 
     main.init_context(context)
 
+    assert received_logger == [context.logger]
     assert context.user_data.model is fake_model
 
 

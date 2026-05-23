@@ -9,7 +9,7 @@ from model_handler import ModelHandler
 
 def init_context(context):
     context.logger.info('Init context...  0%')
-    context.user_data.model = ModelHandler()
+    context.user_data.model = ModelHandler(logger=context.logger)
     context.logger.info('Init context...100%')
 
 

@@ -121,9 +121,9 @@ def test_handle_logs_pipeline_summary(monkeypatch):
     monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
 
     messages = []
-    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'LOGGER', SimpleNamespace(info=lambda message: messages.append(message)))
+    logger = SimpleNamespace(info=lambda message: messages.append(message))
 
-    handler = ModelHandler()
+    handler = ModelHandler(logger=logger)
     image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
 
     handler.handle(

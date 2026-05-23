@@ -16,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ModelHandler:
-    def __init__(self):
+    def __init__(self, *, logger=None):
         input_size = int(os.environ.get('MODEL_INPUT_SIZE', '504'))
         conf_threshold = float(os.environ.get('MODEL_CONF_THRESHOLD', '0.2'))
         
@@ -32,6 +32,7 @@ class ModelHandler:
         
         self.backend = RFDETRStainBackend(**backend_kwargs)
         self.input_size = input_size
+        self.logger = logger or LOGGER
 
     def handle(self, *, image, obj_bbox, mapping):
         if not obj_bbox:
@@ -79,7 +80,7 @@ class ModelHandler:
                 }],
             })
 
-        LOGGER.info(
+        self.logger.info(
             'RF-DETR stain pipeline summary: '
             f'raw_predictions={raw_predictions} '
             f'clipped_predictions={clipped_predictions} '
