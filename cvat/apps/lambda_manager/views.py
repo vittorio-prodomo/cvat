@@ -335,7 +335,8 @@ class LambdaFunction:
         extra_params = data.get("extra_params") or {}
         if extra_params:
             payload.update(extra_params)
-        mapping = data.get("mapping", {})
+        mapping_is_specified = "mapping" in data
+        mapping = data.get("mapping") if mapping_is_specified else None
 
         model_labels = self.labels
         task_labels = db_task.get_labels(prefetch=True)
@@ -452,7 +453,7 @@ class LambdaFunction:
                         mapping_item["sublabels"], md_label["sublabels"], db_label.sublabels.all()
                     )
 
-        if not mapping:
+        if not mapping_is_specified:
             mapping = make_default_mapping(model_labels, task_labels)
         else:
             validate_labels_mapping(mapping, self.labels, task_labels)

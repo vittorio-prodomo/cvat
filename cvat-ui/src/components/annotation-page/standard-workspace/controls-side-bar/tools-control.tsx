@@ -169,7 +169,7 @@ interface State {
     thresholdValue: number;
     mode: 'detection' | 'interaction' | 'tracking';
     portals: React.ReactPortal[];
-    interactorMapping: ServerMapping;
+    interactorMapping: ServerMapping | null;
 }
 
 type DetectorResults = Extract<Awaited<ReturnType<typeof core.lambda.call>>, { version: number }>;
@@ -273,7 +273,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             showConfidenceControl: false,
             mode: 'interaction',
             portals: [],
-            interactorMapping: {},
+            interactorMapping: null,
         };
 
         this.interaction = {
@@ -436,7 +436,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     {
                         ...data,
                         job: jobInstance.id,
-                        ...(Object.keys(interactorMapping).length > 0 ? { mapping: interactorMapping } : {}),
+                        ...(interactorMapping !== null ? { mapping: interactorMapping } : {}),
                     },
                 ) as InteractorResults;
 
@@ -655,7 +655,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const { activeInteractor } = this.state;
         const [interactor] = interactors.filter((_interactor: MLModel) => _interactor.id === value);
 
-        if (activeInteractor?.id === interactor?.id) {
+        if (!interactor || activeInteractor?.id === interactor.id) {
             return;
         }
 
@@ -668,7 +668,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         this.setState({
             activeInteractor: interactor,
-            interactorMapping: {},
+            interactorMapping: null,
         });
     };
 

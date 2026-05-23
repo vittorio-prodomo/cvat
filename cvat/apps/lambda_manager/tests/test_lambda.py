@@ -852,6 +852,36 @@ class LambdaTestCases(_LambdaTestCaseBase):
         self.assertIn("mapping", captured_payload)
         self.assertEqual(captured_payload["mapping"], explicit_mapping)
 
+    def test_api_v2_lambda_functions_create_interactor_forwards_explicit_empty_mapping(self):
+        captured_payload = {}
+        task = self._create_interactor_mapping_task()
+
+        def capturing_invoke(func, payload):
+            captured_payload.update(payload)
+            return []
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=capturing_invoke,
+        ):
+            data = {
+                "task": task["id"],
+                "frame": 0,
+                "pos_points": [[3.45, 6.78]],
+                "neg_points": [],
+                "obj_bbox": [[10, 10], [100, 100]],
+                "mapping": {},
+            }
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor_with_labels}",
+                self.admin,
+                data=data,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("mapping", captured_payload)
+        self.assertEqual(captured_payload["mapping"], {})
+
     def test_api_v2_lambda_functions_create_tracker(self):
         for id_func in [
             id_function_tracker,
