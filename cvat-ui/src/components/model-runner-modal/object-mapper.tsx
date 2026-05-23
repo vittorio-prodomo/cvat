@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useEffect, useState } from 'react';
+import React, {
+    useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import { Row, Col } from 'antd/lib/grid';
 import Select from 'antd/lib/select';
 import Tag from 'antd/lib/tag';
@@ -38,6 +40,12 @@ function ObjectMapperComponent(props: Props): JSX.Element {
     const [mapping, setMapping] = useState<Props['defaultMapping']>(defaultMapping);
     const [leftValue, setLeftValue] = useState<object | null>(null);
     const [rightValue, setRightValue] = useState<object | null>(null);
+    const mappingSignature = useMemo(() => JSON.stringify({
+        left: leftData.map((item) => getObjectName(item)),
+        right: rightData.map((item) => getObjectName(item)),
+        defaults: defaultMapping.map(([left, right]) => [getObjectName(left), getObjectName(right)]),
+    }), [defaultMapping, getObjectName, leftData, rightData]);
+    const previousSignature = useRef<string | null>(null);
 
     const setMappingWrapper = (updated: Props['defaultMapping']): void => {
         // if we prefer useEffect instead of this approach
@@ -55,9 +63,14 @@ function ObjectMapperComponent(props: Props): JSX.Element {
         return rightData.filter((right) => !mapping.flat().includes(right));
     };
 
-    useEffect(() => {
-        setMappingWrapper(defaultMapping);
-    }, [leftData, rightData]);
+    useLayoutEffect(() => {
+        if (previousSignature.current !== mappingSignature) {
+            previousSignature.current = mappingSignature;
+            setMappingWrapper(defaultMapping);
+            setLeftValue(null);
+            setRightValue(null);
+        }
+    }, [defaultMapping, mappingSignature]);
 
     useEffect(() => {
         if (leftValue && rightValue) {

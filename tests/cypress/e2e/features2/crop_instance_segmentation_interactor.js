@@ -318,15 +318,17 @@ context('Crop instance segmentation interactor', () => {
             cy.get('.cvat-runner-label-mapper').should('exist');
         });
 
-        it('Should send mapping in interactor request and create labeled shapes', () => {
+        it('Should create labeled shapes for default auto-mapping', () => {
             openInteractorsWithModels([mappedCropInteractor], 'getMappedInteractorFunctions');
             selectInteractor(mappedCropInteractor.id);
+            cy.window().should((win) => {
+                const toolsControlComponent = requireToolsControlComponent(win);
+
+                expect(toolsControlComponent.state.interactorMapping).to.have.property('car');
+                expect(toolsControlComponent.state.interactorMapping).to.have.property('person');
+            });
 
             cy.intercept('POST', '**/api/lambda/functions/test-crop-interactor**', (req) => {
-                expect(req.body).to.have.property('mapping');
-                expect(req.body.mapping).to.have.property('car');
-                expect(req.body.mapping).to.have.property('person');
-
                 req.reply({
                     statusCode: 200,
                     body: {
@@ -347,6 +349,41 @@ context('Crop instance segmentation interactor', () => {
             cy.get('.cvat-objects-sidebar-state-item').should('have.length', 2);
             cy.get('.cvat-objects-sidebar-state-item').first().should('contain', 'car');
             cy.get('.cvat-objects-sidebar-state-item').last().should('contain', 'person');
+        });
+
+        it('Should preserve deleted auto-mapped rows and send the edited mapping', () => {
+            openInteractorsWithModels([mappedCropInteractor], 'getEditableMappingFunctions');
+            selectInteractor(mappedCropInteractor.id);
+
+            cy.contains('.cvat-runner-label-mapping-row', 'person').within(() => {
+                cy.get('.cvat-danger-circle-icon').click();
+            });
+
+            cy.contains('.cvat-runner-label-mapping-row', 'person').should('not.exist');
+
+            cy.intercept('POST', '**/api/lambda/functions/test-crop-interactor**', (req) => {
+                expect(req.body.mapping).to.have.property('car');
+                expect(req.body.mapping).to.have.property('bicycle');
+                expect(req.body.mapping).to.not.have.property('person');
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [
+                            makeMaskShape({ label: 'car', left: 100, top: 100 }),
+                        ],
+                    },
+                });
+            }).as('editedMappingCall');
+
+            startInteraction();
+            drawBoxPrompt(100, 100, 300, 300);
+
+            cy.wait('@editedMappingCall');
+            finishInteraction();
+
+            cy.get('.cvat-objects-sidebar-state-item').should('have.length', 1);
+            cy.get('.cvat-objects-sidebar-state-item').should('contain', 'car');
         });
     });
 
