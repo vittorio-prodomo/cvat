@@ -73,10 +73,20 @@ def test_handler_logs_request_summary():
 
     main.handler(context, event)
 
-    assert any('request summary' in message for message in messages)
-    assert any('bbox=[[1, 1], [3, 3]]' in message for message in messages)
-    assert any('mapping_keys=1' in message for message in messages)
-    assert any('returned_shapes=1' in message for message in messages)
+    assert any(
+        message == (
+            'RF-DETR stain request summary: '
+            'image_size=(4, 4) '
+            'bbox=[[1, 1], [3, 3]] '
+            'mapping_keys=1 '
+            "mapping_labels=['(C5) infiltraz_cls']"
+        )
+        for message in messages
+    )
+    assert any(
+        message == 'RF-DETR stain response summary: returned_shapes=1'
+        for message in messages
+    )
 
 
 def test_init_context_stores_model(monkeypatch):
