@@ -55,6 +55,30 @@ def test_handler_decodes_image_and_returns_shapes_json():
     assert json.loads(response.body)['shapes'][0]['label'] == 'infiltraz_cls'
 
 
+def test_handler_logs_request_summary():
+    messages = []
+
+    class LoggingContext(DummyContext):
+        def __init__(self):
+            super().__init__()
+            self.logger = SimpleNamespace(info=lambda message: messages.append(message))
+
+    context = LoggingContext()
+    context.user_data.model = DummyModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {'(C5) infiltraz_cls': {'name': 'infiltraz_cls', 'attributes': {}}},
+    })
+
+    main.handler(context, event)
+
+    assert any('request summary' in message for message in messages)
+    assert any('bbox=[[1, 1], [3, 3]]' in message for message in messages)
+    assert any('mapping_keys=1' in message for message in messages)
+    assert any('returned_shapes=1' in message for message in messages)
+
+
 def test_init_context_stores_model(monkeypatch):
     fake_model = DummyModel()
     monkeypatch.setattr(main, 'ModelHandler', lambda: fake_model)

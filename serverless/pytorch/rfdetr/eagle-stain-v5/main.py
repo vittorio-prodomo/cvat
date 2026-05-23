@@ -17,10 +17,26 @@ def handler(context, event):
     data = event.body
     buf = io.BytesIO(base64.b64decode(data['image']))
     image = Image.open(buf).convert('RGB')
+    obj_bbox = data.get('obj_bbox')
+    mapping = data.get('mapping', {})
+
+    context.logger.info(
+        'RF-DETR stain request summary: '
+        f'image_size={image.size} '
+        f'bbox={obj_bbox} '
+        f'mapping_keys={len(mapping)} '
+        f'mapping_labels={sorted(mapping.keys())}'
+    )
+
     shapes = context.user_data.model.handle(
         image=image,
-        obj_bbox=data.get('obj_bbox'),
-        mapping=data.get('mapping', {}),
+        obj_bbox=obj_bbox,
+        mapping=mapping,
+    )
+
+    context.logger.info(
+        'RF-DETR stain response summary: '
+        f'returned_shapes={len(shapes)}'
     )
 
     return context.Response(
