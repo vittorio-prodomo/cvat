@@ -329,6 +329,10 @@ context('Crop instance segmentation interactor', () => {
             });
 
             cy.intercept('POST', '**/api/lambda/functions/test-crop-interactor**', (req) => {
+                expect(req.body).to.have.property('mapping');
+                expect(req.body.mapping).to.have.property('car');
+                expect(req.body.mapping).to.have.property('person');
+
                 req.reply({
                     statusCode: 200,
                     body: {

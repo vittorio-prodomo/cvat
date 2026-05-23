@@ -51,7 +51,7 @@ import ApproximationAccuracy, {
 } from 'components/annotation-page/standard-workspace/controls-side-bar/approximation-accuracy';
 import ConfidenceThreshold from 'components/annotation-page/standard-workspace/controls-side-bar/confidence-threshold';
 import { switchToolsBlockerState } from 'actions/settings-actions';
-import { ServerMapping } from 'components/model-runner-modal/label-mapping-utils';
+import { computeAutoServerMapping, ServerMapping } from 'components/model-runner-modal/label-mapping-utils';
 import InteractorLabelMapper from './interactor-label-mapper';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
@@ -405,7 +405,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
-        const { jobInstance } = this.props;
+        const { jobInstance, labels } = this.props;
         const { activeInteractor, fetching, interactorMapping } = this.state;
 
         const { id, latestRequest } = this.interaction;
@@ -429,6 +429,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             try {
                 // run server request
                 this.setState({ fetching: true });
+                const mapping = Object.keys(interactorMapping).length > 0 || !activeInteractor ?
+                    interactorMapping :
+                    computeAutoServerMapping(activeInteractor, labels);
 
                 await this.initializeOpenCV();
                 const response = await core.lambda.call(
@@ -437,7 +440,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     {
                         ...data,
                         job: jobInstance.id,
-                        ...(Object.keys(interactorMapping).length > 0 ? { mapping: interactorMapping } : {}),
+                        ...(Object.keys(mapping).length > 0 ? { mapping } : {}),
                     },
                 ) as InteractorResults;
 
