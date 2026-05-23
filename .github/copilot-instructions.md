@@ -21,7 +21,13 @@
 - Treat per-shape interactor labels as authoritative; only fall back to the active label for legacy unlabeled responses.
 - Keep crop instance-segmentation backends thin and share crop, reprojection, NMS, and CVAT RLE helpers.
 - Return full-image CVAT mask RLEs from interactors; placeholder mask arrays do not work.
+- If adding more crop interactor backends, give each backend its own Nuclio directory and function metadata instead of reusing one shared function config.
 - For headless interactor UI tests, prefer AUT-native canvas events over Cypress `.trigger()` when browser behavior matters.
+
+## Current focus
+
+- Recently shipped: the crop instance-segmentation interactor vertical slice is now on `develop`, including mapped-label UI support, the Ultralytics backend, and the passing external Cypress verification flow.
+- Queued next: treat the current crop interactor as the reference implementation and add future backends as separate Nuclio functions/directories rather than piling multiple backends into one deployable function.
 
 ## Current landmines
 
@@ -29,3 +35,4 @@
 - The SAM3 interactive path must use the `sam3` checkpoint unless a compatible custom checkpoint is supplied.
 - In no-Traefik setups behind an external reverse proxy, verify the live `cvat_ui` bind port before chasing 502s.
 - Headless Cypress interactor specs need AUT-native canvas events, a post-response finish event, and valid CVAT mask RLE mocks.
+- `serverless/deploy_gpu.sh` expects a Nuclio directory path (the one containing `function-gpu.yaml`), not the YAML file path itself.
