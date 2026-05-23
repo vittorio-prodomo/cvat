@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from postprocess import (
     prepare_crop,
     project_mask_to_image,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ModelHandler:
@@ -50,13 +53,20 @@ class ModelHandler:
                 )
 
         kept = apply_class_aware_ios_nms(clipped, threshold=0.8)
+        raw_predictions = len(predicted)
+        clipped_predictions = len(clipped)
+        kept_predictions = len(kept)
+        unmapped_predictions = 0
+        empty_projected_masks = 0
         shapes = []
         for instance in kept:
             if instance.class_name not in mapping:
+                unmapped_predictions += 1
                 continue
 
             full_mask = project_mask_to_image(instance.mask, prepared)
             if not full_mask.any():
+                empty_projected_masks += 1
                 continue
 
             shapes.append({
@@ -69,4 +79,13 @@ class ModelHandler:
                 }],
             })
 
+        LOGGER.info(
+            'RF-DETR stain pipeline summary: '
+            f'raw_predictions={raw_predictions} '
+            f'clipped_predictions={clipped_predictions} '
+            f'kept_predictions={kept_predictions} '
+            f'unmapped_predictions={unmapped_predictions} '
+            f'empty_projected_masks={empty_projected_masks} '
+            f'returned_shapes={len(shapes)}'
+        )
         return shapes

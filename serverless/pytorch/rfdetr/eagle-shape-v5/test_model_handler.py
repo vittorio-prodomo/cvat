@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from PIL import Image
+from types import SimpleNamespace
 
 from model_handler import ModelHandler
 
@@ -67,6 +68,32 @@ def test_handle_returns_mapped_shapes_and_skips_unmapped_labels(monkeypatch):
     assert shapes[0]['type'] == 'mask'
     assert shapes[0]['points'][-4:] == [0, 0, 39, 29]
     assert shapes[0]['attributes'] == [{'spec_id': 0, 'value': '0.900000'}]
+
+
+def test_handle_logs_pipeline_summary(monkeypatch):
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    monkeypatch.setattr('model_handler.RFDETRShapeBackend', DummyBackend)
+
+    messages = []
+    monkeypatch.setattr('model_handler.LOGGER', SimpleNamespace(info=lambda message: messages.append(message)))
+
+    handler = ModelHandler()
+    image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
+
+    handler.handle(
+        image=image,
+        obj_bbox=[[0, 0], [39, 29]],
+        mapping={'(A13) danno_urto': {'name': 'danno_urto_a13', 'attributes': {}}},
+    )
+
+    assert any('pipeline summary' in message for message in messages)
+    assert any('raw_predictions=2' in message for message in messages)
+    assert any('clipped_predictions=2' in message for message in messages)
+    assert any('kept_predictions=2' in message for message in messages)
+    assert any('unmapped_predictions=1' in message for message in messages)
+    assert any('empty_projected_masks=0' in message for message in messages)
+    assert any('returned_shapes=1' in message for message in messages)
 
 
 def test_handle_uses_crop_preprocessing_flow(monkeypatch):
