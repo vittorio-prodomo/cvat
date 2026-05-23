@@ -5,6 +5,30 @@ import numpy as np
 import pytest
 
 
+MODULE_DIR = Path(__file__).parent
+LOCAL_MODULE_NAMES = ('postprocess', 'rfdetr_backend')
+
+
+@pytest.fixture(autouse=True)
+def local_modules():
+    saved_modules = {
+        module_name: sys.modules.get(module_name)
+        for module_name in LOCAL_MODULE_NAMES
+    }
+    sys.path.insert(0, str(MODULE_DIR))
+    for module_name in LOCAL_MODULE_NAMES:
+        sys.modules.pop(module_name, None)
+    try:
+        yield
+    finally:
+        sys.path.pop(0)
+        for module_name, saved_module in saved_modules.items():
+            if saved_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = saved_module
+
+
 # Test isolation: Create a fixture-based mock with proper module-level isolation
 @pytest.fixture(autouse=True)
 def mock_torch():

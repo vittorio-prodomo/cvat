@@ -1,9 +1,56 @@
+import importlib.util
+from pathlib import Path
+import sys
+
 import numpy as np
 import pytest
 from PIL import Image
 from types import SimpleNamespace
 
-from model_handler import ModelHandler
+
+MODULE_DIR = Path(__file__).parent
+MODULE_NAME = 'eagle_stain_v5_model_handler'
+LOCAL_MODULE_NAMES = ('postprocess', 'rfdetr_backend', 'model_handler')
+
+
+def load_local_module(module_name):
+    spec = importlib.util.spec_from_file_location(
+        f'{MODULE_NAME}_{module_name}',
+        MODULE_DIR / f'{module_name}.py',
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_model_handler():
+    saved_modules = {
+        module_name: sys.modules.get(module_name)
+        for module_name in LOCAL_MODULE_NAMES
+    }
+    sys.path.insert(0, str(MODULE_DIR))
+    try:
+        loaded_modules = {
+            module_name: load_local_module(module_name)
+            for module_name in LOCAL_MODULE_NAMES
+        }
+        return loaded_modules['model_handler'], loaded_modules['rfdetr_backend']
+    finally:
+        sys.path.pop(0)
+        for module_name, saved_module in saved_modules.items():
+            if saved_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = saved_module
+
+
+MODEL_HANDLER_MODULE, RFDETR_BACKEND_MODULE = load_model_handler()
+MODEL_HANDLER_PATH = Path(__file__).with_name('model_handler.py').resolve()
+ModelHandler = MODEL_HANDLER_MODULE.ModelHandler
+PredictedInstance = RFDETR_BACKEND_MODULE.PredictedInstance
 
 
 class DummyBackend:
@@ -14,8 +61,6 @@ class DummyBackend:
     
     def predict(self, image):
         """Return mock predictions matching PredictedInstance format."""
-        from rfdetr_backend import PredictedInstance
-        
         # Return two mock predictions: one mapped, one unmapped
         h, w = image.shape[:2]
         mask1 = np.ones((h, w), dtype=np.uint8)
@@ -38,7 +83,7 @@ class DummyBackend:
 def test_model_handler_requires_a_bounding_box(monkeypatch):
     monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
     monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', DummyBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
     
     handler = ModelHandler()
     image = Image.new('RGB', (40, 30), 'white')
@@ -50,7 +95,7 @@ def test_model_handler_requires_a_bounding_box(monkeypatch):
 def test_handle_returns_mapped_shapes_and_skips_unmapped_labels(monkeypatch):
     monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
     monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', DummyBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
     
     handler = ModelHandler()
     image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
@@ -73,10 +118,10 @@ def test_handle_returns_mapped_shapes_and_skips_unmapped_labels(monkeypatch):
 def test_handle_logs_pipeline_summary(monkeypatch):
     monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
     monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', DummyBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
 
     messages = []
-    monkeypatch.setattr('model_handler.LOGGER', SimpleNamespace(info=lambda message: messages.append(message)))
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'LOGGER', SimpleNamespace(info=lambda message: messages.append(message)))
 
     handler = ModelHandler()
     image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
@@ -112,7 +157,7 @@ def test_handle_uses_crop_preprocessing_flow(monkeypatch):
             received_shape.append(image.shape)
             return []
     
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', InspectorBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', InspectorBackend)
     
     handler = ModelHandler()
     image = Image.fromarray(np.full((100, 200, 3), 255, dtype=np.uint8))
@@ -147,7 +192,7 @@ def test_model_handler_passes_manifest_configured_checkpoint_paths_to_backend(mo
         def predict(self, image):
             return []
     
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', InspectorBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', InspectorBackend)
     
     handler = ModelHandler()
     
@@ -178,7 +223,6 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
             pass
         
         def predict(self, image):
-            from rfdetr_backend import PredictedInstance
             h, w = image.shape[:2]
             mask = np.ones((h, w), dtype=np.uint8)
             return [
@@ -189,7 +233,7 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
                 ),
             ]
     
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', FullMaskBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', FullMaskBackend)
     
     handler = ModelHandler()
     # 10x10 image with bbox partially out of frame
@@ -251,7 +295,6 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
             pass
         
         def predict(self, image):
-            from rfdetr_backend import PredictedInstance
             h, w = image.shape[:2]
             mask = np.ones((h, w), dtype=np.uint8)
             return [
@@ -262,7 +305,7 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
                 ),
             ]
     
-    monkeypatch.setattr('model_handler.RFDETRStainBackend', FullMaskBackend)
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', FullMaskBackend)
     
     handler = ModelHandler()
     # 20x20 image with inverted bbox: top-left at [8,8], bottom-right at [3,3]
@@ -299,3 +342,7 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
     
     # Mask should cover the normalized crop [3,3] to [8,8]
     assert decoded[3:9, 3:9].sum() > 0, "Mask should cover normalized crop region"
+
+
+def test_model_handler_uses_local_module():
+    assert Path(MODEL_HANDLER_MODULE.__file__).resolve() == MODEL_HANDLER_PATH
