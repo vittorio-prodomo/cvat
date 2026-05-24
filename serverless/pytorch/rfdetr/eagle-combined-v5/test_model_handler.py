@@ -273,3 +273,72 @@ def test_handle_fails_when_backend_errors(mock_image, mock_bbox, mock_mapping, m
     
     with pytest.raises(RuntimeError, match="Backend prediction failed"):
         handler.handle(pil_image, mock_bbox, mock_mapping)
+
+
+def test_merge_by_task_label_transitive_overlap():
+    """Test that transitive overlap grouping works correctly.
+    
+    If A overlaps B, B overlaps C, and A does not overlap C directly,
+    all three should merge into one connected component.
+    """
+    import importlib
+    from PIL import Image
+    
+    postprocess = importlib.import_module('postprocess')
+    model_handler = importlib.import_module('model_handler')
+    
+    PredictedInstance = postprocess.PredictedInstance
+    
+    # Create three masks where A overlaps B, B overlaps C, but A and C don't overlap
+    # Mask A: left region (100x100 at x=100-200)
+    mask_a = np.zeros((504, 504), dtype=np.uint8)
+    mask_a[200:300, 100:200] = 1
+    
+    # Mask B: center region (100x100 at x=180-280) - overlaps both A and C
+    mask_b = np.zeros((504, 504), dtype=np.uint8)
+    mask_b[200:300, 180:280] = 1
+    
+    # Mask C: right region (100x100 at x=260-360) - does not overlap A directly
+    mask_c = np.zeros((504, 504), dtype=np.uint8)
+    mask_c[200:300, 260:360] = 1
+    
+    # All predictions have the same mapped label
+    shape_predictions = [
+        PredictedInstance(
+            class_name="(A13) danno_urto",
+            score=0.85,
+            mask=mask_a,
+        ),
+        PredictedInstance(
+            class_name="(A13) danno_urto",
+            score=0.90,
+            mask=mask_b,
+        ),
+        PredictedInstance(
+            class_name="(A13) danno_urto",
+            score=0.75,
+            mask=mask_c,
+        )
+    ]
+    
+    mapping = {"(A13) danno_urto": {"name": "bridge_issue"}}
+    
+    handler = model_handler.ModelHandler()
+    handler.shape_backend.set_predictions(shape_predictions)
+    handler.stain_backend.set_predictions([])
+    
+    mock_image = np.zeros((100, 100, 3), dtype=np.uint8)
+    mock_bbox = [[10, 10], [50, 50]]
+    pil_image = Image.fromarray(mock_image)
+    
+    shapes = handler.handle(pil_image, mock_bbox, mapping)
+    
+    # Expect one returned shape with all three masks merged
+    assert len(shapes) == 1, f"Expected 1 shape (transitively merged), got {len(shapes)}"
+    assert shapes[0]['label'] == 'bridge_issue'
+    assert shapes[0]['type'] == 'mask'
+    
+    # Expect score to be the maximum (0.90)
+    assert len(shapes[0]['attributes']) == 1
+    assert shapes[0]['attributes'][0]['spec_id'] == 0
+    assert shapes[0]['attributes'][0]['value'] == '0.900000'

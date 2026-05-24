@@ -58,16 +58,22 @@ def _merge_by_task_label(predictions: list[ResolvedPrediction]) -> list[Resolved
         groups = []  # List of lists: each inner list is a group of indices
         
         for i in range(n):
-            # Find which existing group this prediction belongs to
-            found_group = None
+            # Find all existing groups this prediction overlaps with
+            overlapping_groups = []
             for group in groups:
                 # Check if prediction i overlaps with any prediction in this group
                 if any(_masks_overlap(label_preds[i].mask, label_preds[j].mask) for j in group):
-                    found_group = group
-                    break
+                    overlapping_groups.append(group)
             
-            if found_group is not None:
-                found_group.append(i)
+            if overlapping_groups:
+                # Merge all overlapping groups into the first one
+                merged_group = overlapping_groups[0]
+                merged_group.append(i)
+                
+                # Merge additional groups into the first
+                for group in overlapping_groups[1:]:
+                    merged_group.extend(group)
+                    groups.remove(group)
             else:
                 # Start a new group
                 groups.append([i])
