@@ -132,7 +132,7 @@ def mock_backends(monkeypatch):
 
 
 def test_model_handler_requires_bbox(mock_image):
-    """Test that ModelHandler raises error when bounding box is None."""
+    """Test that ModelHandler raises error when bounding box is None or empty."""
     import importlib
     from PIL import Image
     
@@ -141,8 +141,13 @@ def test_model_handler_requires_bbox(mock_image):
     handler = model_handler.ModelHandler()
     pil_image = Image.fromarray(mock_image)
     
+    # Test None bbox
     with pytest.raises(ValueError, match="Crop interactor requires a bounding box"):
         handler.handle(pil_image, None, {})
+    
+    # Test empty bbox
+    with pytest.raises(ValueError, match="Crop interactor requires a bounding box"):
+        handler.handle(pil_image, [], {})
 
 
 def test_handle_merges_overlap_after_mapping(mock_image, mock_bbox, mock_mapping):

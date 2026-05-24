@@ -120,7 +120,7 @@ class ModelHandler:
 
     def handle(self, image, obj_bbox, mapping):
         # Validate bbox requirement
-        if obj_bbox is None:
+        if not obj_bbox:
             raise ValueError('Crop interactor requires a bounding box')
         
         # Prepare crop once
