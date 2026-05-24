@@ -35,6 +35,7 @@ id_function_reid_with_no_response_data = (
 )
 id_function_interactor = "test-openvino-dextr"
 id_function_interactor_with_labels = "test-openvino-dextr-with-labels"
+id_function_interactor_combined = "test-rfdetr-combined-with-labels"
 id_function_tracker = "test-pth-foolwood-siammask"
 id_function_tracker_with_supported_shape_types = "test-tracker-with-supported-shape-types"
 id_function_non_type = "test-model-has-non-type"
@@ -305,6 +306,34 @@ class LambdaTestCases(_LambdaTestCaseBase):
         # the positive function must remain visible
         visible_ids = {f["id"] for f in response.data}
         self.assertEqual(visible_ids, {id_function_detector})
+
+    def test_api_v2_lambda_functions_list_includes_combined_rfdetr_interactor(self):
+        response = self._get_request(LAMBDA_FUNCTIONS_PATH, self.admin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        combined_func = next((f for f in response.data if f["id"] == id_function_interactor_combined), None)
+        self.assertIsNotNone(combined_func, f"Combined interactor {id_function_interactor_combined} not found")
+        self.assertEqual(combined_func["kind"], "interactor")
+        self.assertTrue(combined_func["startswith_box"])
+
+        expected_labels = {
+            "(A13) danno_urto",
+            "(C1) difetti_esecuzione",
+            "(C2) effloresc_essudaz_pop-out",
+            "(C5) infiltraz_cls",
+            "(C6) superf_bagn_dilav_percolaz",
+            "(C7) ammaloram_cls",
+            "(C8) venatura_ruggine_armature",
+            "(C9) fessure_distacchi_corr_staffe",
+            "(C10) fessure_distacchi_corr_arm_long",
+            "(C13) esposiz_arm_precompress",
+            "(C14) danno_urto",
+            "(C16) fessure_verticali",
+            "(C18) fessure_longitudinali",
+            "(C19) fessure_trasversali",
+        }
+        actual_labels = {label["name"] for label in combined_func["labels_v2"]}
+        self.assertEqual(actual_labels, expected_labels)
 
     def test_api_v2_lambda_functions_read(self):
         ids_functions = [
