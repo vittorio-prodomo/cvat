@@ -1,5 +1,8 @@
 # RF-DETR Interactor Mapping Fixes Implementation Plan
 
+> **Status:** SHIPPED on fork-local `develop`.
+> **Verified outcome:** `cvat.apps.lambda_manager.tests.test_lambda` currently passes with `67` tests (`6` skipped), and the external interactor Cypress spec passes `7/7` against `https://lambda.the-commander.net`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the RF-DETR interactor mapping flow so the mapper stays editable in the UI and the resolved mapping is always forwarded to the interactor payload.

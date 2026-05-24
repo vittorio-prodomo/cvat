@@ -1,5 +1,8 @@
 # RF-DETR Interactor Logging Implementation Plan
 
+> **Status:** SHIPPED on fork-local `develop`.
+> **Verified outcome:** Persistent request and pipeline-summary logs remain enabled in both RF-DETR interactors and were used to diagnose the empty-mapping drop path.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add persistent request-summary logging to the RF-DETR shape and stain interactors so empty-result requests can be traced through the request and filtering pipeline.
@@ -440,4 +443,3 @@ Expected: analogous shape request/pipeline/response summary logs.
 - **Spec coverage:** The plan covers the approved scope exactly: request-boundary logging in `main.py`, pipeline-stage summary logging in `model_handler.py`, additive-only behavior, and runtime verification through actual Nuclio logs.
 - **Placeholder scan:** No `TBD`, `TODO`, or vague “add logging” instructions remain. Every task includes exact files, code snippets, commands, and expected outcomes.
 - **Type consistency:** The plan uses existing `DummyContext`, `DummyBackend`, `ModelHandler`, and `Nuclio context.logger` patterns already present in the RF-DETR folders. The logging payload names are consistent across shape and stain.
-

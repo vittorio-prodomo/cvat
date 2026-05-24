@@ -1,5 +1,8 @@
 # RF-DETR Runtime Closure Implementation Plan
 
+> **Status:** SHIPPED on fork-local `develop`.
+> **Verified outcome:** Both RF-DETR Nuclio functions initialize real checkpoints in the live deployment with the self-contained runtime closure from this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the `eagle-shape-v5` and `eagle-stain-v5` Nuclio manifests install a self-contained dependency closure that can import the mounted RF-DETR sources and initialize real checkpoints.

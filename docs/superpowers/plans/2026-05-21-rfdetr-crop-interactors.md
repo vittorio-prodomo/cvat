@@ -1,5 +1,8 @@
 # RF-DETR Crop Interactors Implementation Plan
 
+> **Status:** SHIPPED on fork-local `develop`.
+> **Verified outcome:** RF-DETR Eagle Shape/Stain interactors are live in CVAT, and the later runtime-closure, logging, and mapping-fix follow-up plans are also shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build two self-contained RF-DETR crop-instance-segmentation Nuclio interactors (`eagle-shape-v5` and `eagle-stain-v5`) that show up separately in CVAT and load the approved best checkpoints from the bridge defect detection workspace.
