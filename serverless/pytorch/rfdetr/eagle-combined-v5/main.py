@@ -19,6 +19,7 @@ def handler(context, event):
     image = Image.open(buf).convert('RGB')
     obj_bbox = data.get('obj_bbox')
     mapping = data.get('mapping', {})
+    confidence_threshold = data.get('confidence_threshold')
 
     context.logger.info(
         'RF-DETR combined request summary: '
@@ -28,11 +29,20 @@ def handler(context, event):
         f'mapping_labels={sorted(mapping.keys())}'
     )
 
-    shapes = context.user_data.model.handle(
-        image=image,
-        obj_bbox=obj_bbox,
-        mapping=mapping,
-    )
+    try:
+        shapes = context.user_data.model.handle(
+            image=image,
+            obj_bbox=obj_bbox,
+            mapping=mapping,
+            confidence_threshold=confidence_threshold,
+        )
+    except ValueError as exc:
+        return context.Response(
+            body=json.dumps({'error': str(exc)}),
+            headers={},
+            content_type='application/json',
+            status_code=400,
+        )
 
     context.logger.info(
         'RF-DETR combined response summary: '

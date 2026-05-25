@@ -76,7 +76,7 @@ class ShapeBackend:
         """Set predictions to be returned by predict()."""
         self._predictions = predictions
     
-    def predict(self, image):
+    def predict(self, image, conf_threshold=None):
         """Return pre-configured predictions."""
         return self._predictions
 
@@ -94,7 +94,7 @@ class StainBackend:
         """Set predictions to be returned by predict()."""
         self._predictions = predictions
     
-    def predict(self, image):
+    def predict(self, image, conf_threshold=None):
         """Return pre-configured predictions."""
         return self._predictions
 
@@ -105,7 +105,7 @@ class FailingBackend:
     def __init__(self, checkpoint_dir, config_path, conf_threshold):
         pass
     
-    def predict(self, image):
+    def predict(self, image, conf_threshold=None):
         raise RuntimeError("Backend prediction failed")
 
 
@@ -347,3 +347,144 @@ def test_merge_by_task_label_transitive_overlap():
     assert len(shapes[0]['attributes']) == 1
     assert shapes[0]['attributes'][0]['spec_id'] == 0
     assert shapes[0]['attributes'][0]['value'] == '0.900000'
+
+
+def test_handle_passes_request_threshold_to_both_backends(mock_image, mock_bbox, mock_mapping):
+    """Test that request-level threshold is passed to both shape and stain backends."""
+    import importlib
+    from PIL import Image
+    
+    model_handler = importlib.import_module('model_handler')
+    
+    received_thresholds = {'shape': [], 'stain': []}
+    
+    class ThresholdCapturingShapeBackend:
+        def __init__(self, checkpoint_dir, config_path, conf_threshold):
+            self.checkpoint_dir = checkpoint_dir
+            self.config_path = config_path
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_thresholds['shape'].append(conf_threshold)
+            return []
+    
+    class ThresholdCapturingStainBackend:
+        def __init__(self, checkpoint_dir, config_path, conf_threshold):
+            self.checkpoint_dir = checkpoint_dir
+            self.config_path = config_path
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_thresholds['stain'].append(conf_threshold)
+            return []
+    
+    # Replace backends with capturing versions
+    import importlib
+    shape_backend = importlib.import_module('shape_backend')
+    stain_backend = importlib.import_module('stain_backend')
+    original_shape = shape_backend.RFDETRShapeBackend
+    original_stain = stain_backend.RFDETRStainBackend
+    
+    shape_backend.RFDETRShapeBackend = ThresholdCapturingShapeBackend
+    stain_backend.RFDETRStainBackend = ThresholdCapturingStainBackend
+    
+    try:
+        # Reload model_handler to pick up new backends
+        importlib.reload(model_handler)
+        
+        handler = model_handler.ModelHandler()
+        pil_image = Image.fromarray(mock_image)
+        
+        # Call with request threshold override
+        shapes = handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=0.35)
+        
+        # Verify both backends received the same threshold
+        assert received_thresholds['shape'] == [0.35]
+        assert received_thresholds['stain'] == [0.35]
+    finally:
+        # Restore original backends
+        shape_backend.RFDETRShapeBackend = original_shape
+        stain_backend.RFDETRStainBackend = original_stain
+        importlib.reload(model_handler)
+
+
+def test_handle_raises_on_invalid_threshold(mock_image, mock_bbox, mock_mapping):
+    """Test that model handler raises ValueError for invalid confidence_threshold."""
+    import importlib
+    from PIL import Image
+    
+    model_handler = importlib.import_module('model_handler')
+    
+    handler = model_handler.ModelHandler()
+    pil_image = Image.fromarray(mock_image)
+    
+    # Test invalid value (non-numeric)
+    with pytest.raises(ValueError, match="confidence_threshold must be a number"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold='bad-value')
+    
+    # Test out of range (too low)
+    with pytest.raises(ValueError, match="confidence_threshold must be between 0.05 and 0.99"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=0.01)
+    
+    # Test out of range (too high)
+    with pytest.raises(ValueError, match="confidence_threshold must be between 0.05 and 0.99"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=1.5)
+
+
+def test_handle_uses_env_default_when_no_request_threshold(mock_image, mock_bbox, mock_mapping):
+    """Test that model handler uses env default threshold when request doesn't provide one."""
+    import importlib
+    from PIL import Image
+    
+    model_handler = importlib.import_module('model_handler')
+    
+    received_thresholds = {'shape': [], 'stain': []}
+    
+    class ThresholdCapturingShapeBackend:
+        def __init__(self, checkpoint_dir, config_path, conf_threshold):
+            self.checkpoint_dir = checkpoint_dir
+            self.config_path = config_path
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_thresholds['shape'].append(conf_threshold)
+            return []
+    
+    class ThresholdCapturingStainBackend:
+        def __init__(self, checkpoint_dir, config_path, conf_threshold):
+            self.checkpoint_dir = checkpoint_dir
+            self.config_path = config_path
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_thresholds['stain'].append(conf_threshold)
+            return []
+    
+    # Replace backends with capturing versions
+    import importlib
+    shape_backend = importlib.import_module('shape_backend')
+    stain_backend = importlib.import_module('stain_backend')
+    original_shape = shape_backend.RFDETRShapeBackend
+    original_stain = stain_backend.RFDETRStainBackend
+    
+    shape_backend.RFDETRShapeBackend = ThresholdCapturingShapeBackend
+    stain_backend.RFDETRStainBackend = ThresholdCapturingStainBackend
+    
+    try:
+        # Reload model_handler to pick up new backends
+        importlib.reload(model_handler)
+        
+        handler = model_handler.ModelHandler()
+        pil_image = Image.fromarray(mock_image)
+        
+        # Call without request threshold (should use env default 0.2)
+        shapes = handler.handle(pil_image, mock_bbox, mock_mapping)
+        
+        # Verify both backends received the env default (0.2 from mock_env fixture)
+        assert received_thresholds['shape'] == [0.2]
+        assert received_thresholds['stain'] == [0.2]
+    finally:
+        # Restore original backends
+        shape_backend.RFDETRShapeBackend = original_shape
+        stain_backend.RFDETRStainBackend = original_stain
+        importlib.reload(model_handler)

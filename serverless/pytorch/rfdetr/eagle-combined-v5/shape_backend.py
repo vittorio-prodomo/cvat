@@ -275,16 +275,20 @@ class RFDETRShapeBackend:
             "(C19) fessure_trasversali",
         ]
 
-    def predict(self, image: np.ndarray) -> list[PredictedInstance]:
+    def predict(self, image: np.ndarray, conf_threshold: float | None = None) -> list[PredictedInstance]:
         """Run RF-DETR prediction on image and normalize to PredictedInstance format.
 
         Args:
             image: Input image as numpy array (H, W, 3) in RGB format
+            conf_threshold: Optional confidence threshold override for this request
 
         Returns:
             List of predicted instances with class_name, score, and binary mask
         """
         self._load_model()
+        
+        # Use override if provided, otherwise use instance threshold
+        threshold = conf_threshold if conf_threshold is not None else self.conf_threshold
 
         # Prepare image tensor
         # RF-DETR expects ImageNet-normalized input
@@ -320,7 +324,7 @@ class RFDETRShapeBackend:
             
             if masks is not None:
                 # Filter by confidence threshold
-                keep = scores > self.conf_threshold
+                keep = scores > threshold
                 
                 if keep.any():
                     kept_scores = scores[keep]

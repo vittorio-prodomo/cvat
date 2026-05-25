@@ -15,6 +15,38 @@ from postprocess import (
 )
 
 
+def _validate_confidence_threshold(confidence_threshold):
+    """Validate request-level confidence_threshold parameter.
+    
+    Args:
+        confidence_threshold: Value from request (can be None, numeric, or invalid)
+        
+    Returns:
+        Validated float if not None, otherwise None
+        
+    Raises:
+        ValueError: If confidence_threshold is malformed or out of range
+    """
+    if confidence_threshold is None:
+        return None
+    
+    # Check if numeric
+    try:
+        threshold_value = float(confidence_threshold)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"confidence_threshold must be a number, got: {confidence_threshold!r}"
+        )
+    
+    # Check range
+    if threshold_value < 0.05 or threshold_value > 0.99:
+        raise ValueError(
+            f"confidence_threshold must be between 0.05 and 0.99, got: {threshold_value}"
+        )
+    
+    return threshold_value
+
+
 @dataclass(frozen=True)
 class ResolvedPrediction:
     task_label: str
@@ -103,32 +135,36 @@ class ModelHandler:
         
         # Read config from environment
         self.input_size = int(os.environ.get('MODEL_INPUT_SIZE', '504'))
-        conf_threshold = float(os.environ.get('MODEL_CONF_THRESHOLD', '0.2'))
+        self.env_conf_threshold = float(os.environ.get('MODEL_CONF_THRESHOLD', '0.2'))
         
         # Instantiate backends
         self.shape_backend = RFDETRShapeBackend(
             checkpoint_dir=Path(os.environ['SHAPE_CHECKPOINT_DIR']),
             config_path=Path(os.environ['SHAPE_CONFIG_PATH']),
-            conf_threshold=conf_threshold,
+            conf_threshold=self.env_conf_threshold,
         )
         
         self.stain_backend = RFDETRStainBackend(
             checkpoint_dir=Path(os.environ['STAIN_CHECKPOINT_DIR']),
             config_path=Path(os.environ['STAIN_CONFIG_PATH']),
-            conf_threshold=conf_threshold,
+            conf_threshold=self.env_conf_threshold,
         )
 
-    def handle(self, image, obj_bbox, mapping):
+    def handle(self, image, obj_bbox, mapping, confidence_threshold=None):
         # Validate bbox requirement
         if not obj_bbox:
             raise ValueError('Crop interactor requires a bounding box')
         
+        # Validate and resolve confidence threshold
+        request_threshold = _validate_confidence_threshold(confidence_threshold)
+        effective_threshold = request_threshold if request_threshold is not None else self.env_conf_threshold
+        
         # Prepare crop once
         prepared = prepare_crop(image, obj_bbox, target_size=self.input_size)
         
-        # Run both backends
-        shape_instances = self.shape_backend.predict(prepared.image)
-        stain_instances = self.stain_backend.predict(prepared.image)
+        # Run both backends with the same effective threshold
+        shape_instances = self.shape_backend.predict(prepared.image, conf_threshold=effective_threshold)
+        stain_instances = self.stain_backend.predict(prepared.image, conf_threshold=effective_threshold)
         
         # Process and resolve predictions
         resolved = []

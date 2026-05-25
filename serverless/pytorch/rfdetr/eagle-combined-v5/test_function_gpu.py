@@ -109,3 +109,16 @@ def test_function_gpu_mount_paths_consistent_with_opt_bdd():
     pythonpath_idx = lines.index(pythonpath_line)
     pythonpath_value = lines[pythonpath_idx + 1]
     assert '/data/' not in pythonpath_value or '/opt/bdd' in pythonpath_value
+
+
+def test_function_gpu_declares_confidence_threshold_schema():
+    """Manifest must declare extra_params_schema for confidence_threshold."""
+    manifest = Path(__file__).with_name('function-gpu.yaml').read_text(encoding='utf-8')
+    
+    assert 'extra_params_schema:' in manifest
+    assert 'confidence_threshold' in manifest
+    assert 'type":"number"' in manifest or 'type": "number"' in manifest
+    assert 'Inference threshold' in manifest
+    assert 'default":0.2' in manifest or 'default": 0.2' in manifest
+    assert 'min":0.05' in manifest or 'min": 0.05' in manifest
+    assert 'max":0.99' in manifest or 'max": 0.99' in manifest

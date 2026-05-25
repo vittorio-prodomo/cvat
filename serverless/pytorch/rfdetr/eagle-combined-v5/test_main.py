@@ -71,7 +71,7 @@ class DummyContext:
 
 
 class DummyModel:
-    def handle(self, *, image, obj_bbox, mapping):
+    def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
         assert image.size == (4, 4)
         assert obj_bbox == [[1, 1], [3, 3]]
         assert mapping == {
@@ -179,3 +179,50 @@ def test_main_uses_local_model_handler_module():
     loaded_model_handler = sys.modules[main.ModelHandler.__module__]
 
     assert Path(loaded_model_handler.__file__).resolve() == MODEL_HANDLER_PATH
+
+
+def test_handler_receives_and_passes_confidence_threshold():
+    """Test that handler reads confidence_threshold from request and passes it to model handler."""
+    received_threshold = []
+    
+    class ThresholdCapturingModel:
+        def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
+            received_threshold.append(confidence_threshold)
+            return []
+    
+    context = DummyContext()
+    context.user_data.model = ThresholdCapturingModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {},
+        'confidence_threshold': 0.35,
+    })
+    
+    response = main.handler(context, event)
+    
+    assert response.status_code == 200
+    assert received_threshold == [0.35]
+
+
+def test_handler_returns_400_for_invalid_threshold():
+    """Test that handler returns 400 when model handler raises ValueError for invalid threshold."""
+    class InvalidThresholdModel:
+        def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
+            raise ValueError("confidence_threshold must be a number, got: 'bad-value'")
+    
+    context = DummyContext()
+    context.user_data.model = InvalidThresholdModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {},
+        'confidence_threshold': 'bad-value',
+    })
+    
+    response = main.handler(context, event)
+    
+    assert response.status_code == 400
+    error_body = json.loads(response.body)
+    assert 'error' in error_body
+    assert 'confidence_threshold' in error_body['error']
