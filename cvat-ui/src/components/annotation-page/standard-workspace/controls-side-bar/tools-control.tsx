@@ -175,6 +175,7 @@ interface State {
     portals: React.ReactPortal[];
     interactorMapping: ServerMapping | null;
     interactorExtraParams: Record<string, unknown>;
+    interactorExtraParamsTouched: Record<string, boolean>;
 }
 
 type DetectorResults = Extract<Awaited<ReturnType<typeof core.lambda.call>>, { version: number }>;
@@ -297,6 +298,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             portals: [],
             interactorMapping: null,
             interactorExtraParams,
+            interactorExtraParamsTouched: {},
         };
 
         this.interaction = {
@@ -526,7 +528,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private onInteraction = (e: Event): void => {
         const { frame, isActivated } = this.props;
-        const { activeInteractor, interactorExtraParams, interactorMapping } = this.state;
+        const {
+            activeInteractor, interactorExtraParams, interactorMapping, interactorExtraParamsTouched,
+        } = this.state;
 
         if (!isActivated) {
             return;
@@ -542,15 +546,18 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const posPoints = convertShapesForInteractor(shapes, 'points', 'positive');
         const negPoints = convertShapesForInteractor(shapes, 'points', 'negative');
 
-        // Filter out null/undefined values and schema defaults from extra params snapshot
+        // Filter out null/undefined values and untouched schema defaults from extra params snapshot
         const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
         const schemaDefaults = new Map(
             schema?.map((param) => [param.name, param.default]) ?? [],
         );
         const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
             (acc, [key, value]) => {
-                if (value !== null && value !== undefined && value !== schemaDefaults.get(key)) {
-                    acc[key] = value;
+                if (value !== null && value !== undefined) {
+                    // Include if touched OR if not equal to schema default
+                    if (interactorExtraParamsTouched[key] || value !== schemaDefaults.get(key)) {
+                        acc[key] = value;
+                    }
                 }
                 return acc;
             },
@@ -695,18 +702,21 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
                     // Snapshot the complete request with current interactor + params + mapping
                     const { frame } = this.props;
-                    const { interactorExtraParams, interactorMapping } = this.state;
+                    const { interactorExtraParams, interactorMapping, interactorExtraParamsTouched } = this.state;
                     const interactor = activeInteractor as MLModel;
 
-                    // Filter out null/undefined values and schema defaults from extra params snapshot
+                    // Filter out null/undefined values and untouched schema defaults from extra params snapshot
                     const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
                     const schemaDefaults = new Map(
                         schema?.map((param) => [param.name, param.default]) ?? [],
                     );
                     const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
                         (acc, [key, value]) => {
-                            if (value !== null && value !== undefined && value !== schemaDefaults.get(key)) {
-                                acc[key] = value;
+                            if (value !== null && value !== undefined) {
+                                // Include if touched OR if not equal to schema default
+                                if (interactorExtraParamsTouched[key] || value !== schemaDefaults.get(key)) {
+                                    acc[key] = value;
+                                }
                             }
                             return acc;
                         },
@@ -760,6 +770,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             activeInteractor: interactor,
             interactorMapping: null,
             interactorExtraParams,
+            interactorExtraParamsTouched: {},
         });
     };
 
@@ -1414,6 +1425,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             onChange={(name, value) => {
                                 this.setState((state) => ({
                                     interactorExtraParams: { ...state.interactorExtraParams, [name]: value },
+                                    interactorExtraParamsTouched: {
+                                        ...state.interactorExtraParamsTouched, [name]: true,
+                                    },
                                 }));
                             }}
                             title='Interactor parameters'

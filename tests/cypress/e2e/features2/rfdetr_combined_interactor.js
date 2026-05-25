@@ -370,6 +370,30 @@ context('RF-DETR combined interactor', () => {
             selectInteractor(combinedInteractor.id);
             cy.get('.cvat-tools-interactor-extra-params').should('exist');
             cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.2');
+
+            // Test explicit default: after user explicitly edits field to 0.2, it should be sent
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.5');
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.2');
+            cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
+                expect(req.body).to.have.property('extra_params');
+                expect(req.body.extra_params).to.deep.equal({ confidence_threshold: 0.2 });
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [
+                            makeMaskShape({ label: 'bridge_damage', left: 400, top: 400 }),
+                        ],
+                    },
+                });
+            }).as('explicitDefaultCall');
+
+            startInteraction();
+            drawBoxPrompt(400, 400, 600, 600);
+            cy.wait('@explicitDefaultCall');
+            finishInteraction();
         });
     });
 });
