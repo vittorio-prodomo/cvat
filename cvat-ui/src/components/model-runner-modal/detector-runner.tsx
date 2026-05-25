@@ -12,11 +12,14 @@ import InputNumber from 'antd/lib/input-number';
 import Button from 'antd/lib/button';
 import Switch from 'antd/lib/switch';
 import Tag from 'antd/lib/tag';
-import Divider from 'antd/lib/divider';
 import notification from 'antd/lib/notification';
 import { ArrowRightOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 
 import CVATTooltip from 'components/common/cvat-tooltip';
+import ModelExtraParamsForm, {
+    buildExtraParamsDefaults,
+    ModelExtraParamSchemaItem,
+} from 'components/common/model-extra-params-form';
 import { clamp } from 'utils/math';
 import {
     MLModel, ModelKind, DimensionType, Label, LabelType,
@@ -73,13 +76,9 @@ function DetectorRunner(props: Props): JSX.Element {
 
     // Reset extra params to schema defaults whenever the selected model changes
     useEffect(() => {
-        const schema = model?.extraParamsSchema ?? [];
+        const schema = (model?.extraParamsSchema ?? []) as ModelExtraParamSchemaItem[];
         if (schema.length > 0) {
-            const defaults: Record<string, unknown> = {};
-            schema.forEach((p: any) => {
-                defaults[p.name] = p.default !== undefined ? p.default : null;
-            });
-            setExtraParams(defaults);
+            setExtraParams(buildExtraParamsDefaults(schema));
         } else {
             setExtraParams({});
         }
@@ -183,78 +182,12 @@ function DetectorRunner(props: Props): JSX.Element {
                     </Row>
                 </div>
             )}
-            {isDetector && (model?.extraParamsSchema ?? []).length > 0 && (
-                <div className='cvat-detector-runner-extra-params'>
-                    <Divider orientation='left' plain style={{ marginTop: 8, marginBottom: 8 }}>
-                        <Text strong>Model parameters</Text>
-                    </Divider>
-                    {(model?.extraParamsSchema ?? []).map((param: any) => {
-                        const updateParam = (value: unknown): void => {
-                            setExtraParams((prev) => ({ ...prev, [param.name]: value }));
-                        };
-                        const currentVal = extraParams[param.name];
-                        return (
-                            <Row
-                                key={param.name}
-                                align='middle'
-                                justify='start'
-                                style={{ marginBottom: 6 }}
-                            >
-                                <Col span={12}>
-                                    <Text>{param.label ?? param.name}</Text>
-                                    {param.description && (
-                                        <CVATTooltip title={param.description}>
-                                            <QuestionCircleOutlined className='cvat-info-circle-icon' />
-                                        </CVATTooltip>
-                                    )}
-                                </Col>
-                                <Col span={12}>
-                                    {param.type === 'number' && (
-                                        <InputNumber
-                                            style={{ width: '100%' }}
-                                            min={param.min}
-                                            max={param.max}
-                                            step={param.step ?? 1}
-                                            value={currentVal as number | null}
-                                            onChange={(v) => updateParam(v)}
-                                        />
-                                    )}
-                                    {param.type === 'boolean' && (
-                                        <Switch
-                                            checked={!!currentVal}
-                                            onChange={(checked) => updateParam(checked)}
-                                        />
-                                    )}
-                                    {param.type === 'select' && (
-                                        <Select
-                                            style={{ width: '100%' }}
-                                            value={currentVal as string}
-                                            onChange={(v) => updateParam(v)}
-                                        >
-                                            {(param.options ?? []).map((opt: string) => (
-                                                <Select.Option key={opt} value={opt}>
-                                                    {opt}
-                                                </Select.Option>
-                                            ))}
-                                        </Select>
-                                    )}
-                                    {param.type === 'number_list' && (
-                                        <Select
-                                            style={{ width: '100%' }}
-                                            mode='tags'
-                                            tokenSeparators={[',', ' ']}
-                                            value={(currentVal as string[] | null) ?? []}
-                                            onChange={(v) => updateParam(
-                                                (v as string[]).map(Number).filter((n) => !Number.isNaN(n)),
-                                            )}
-                                            notFoundContent={null}
-                                        />
-                                    )}
-                                </Col>
-                            </Row>
-                        );
-                    })}
-                </div>
+            {isDetector && (
+                <ModelExtraParamsForm
+                    schema={(model?.extraParamsSchema ?? []) as ModelExtraParamSchemaItem[]}
+                    values={extraParams}
+                    onChange={setExtraParams}
+                />
             )}
             {isReId ? (
                 <div>

@@ -64,3 +64,11 @@
     display: flex;
     justify-content: space-between;
 }
+
+.cvat-model-extra-params-row {
+    margin-bottom: $grid-unit-size * 0.75;
+}
+
+.cvat-model-extra-params-tooltip-icon {
+    margin-left: $grid-unit-size;
+}
