@@ -202,6 +202,19 @@ function startInteraction() {
     cy.get('.cvat-tools-interact-button').should('be.visible').click();
 }
 
+function withinVisibleToolsPopover(callback) {
+    cy.get('body').then(($body) => {
+        if (!$body.find('.cvat-tools-control-popover:visible').length) {
+            cy.get('.cvat-tools-control').click();
+        }
+    });
+    cy.get('.cvat-tools-control-popover')
+        .filter(':visible')
+        .first()
+        .should('be.visible')
+        .within(callback);
+}
+
 context('RF-DETR combined interactor', () => {
     const taskName = 'RF-DETR combined interactor task';
     const labelNames = ['bridge_damage', 'bridge_stain'];
@@ -313,13 +326,17 @@ context('RF-DETR combined interactor', () => {
             cy.get('.cvat-model-extra-params-row').should('exist');
 
             // Test clamping: entering 1.2 should clamp to 0.99
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('1.2');
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.99');
+            withinVisibleToolsPopover(() => {
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('1.2');
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').blur();
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.99');
+                cy.get('.cvat-tools-interactor-extra-params').should('be.visible');
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.35');
+            });
 
             // Test sending extra_params in request body with value 0.35
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.35');
             cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
                 expect(req.body).to.have.property('extra_params');
                 expect(req.body.extra_params).to.deep.equal({ confidence_threshold: 0.35 });
@@ -340,7 +357,9 @@ context('RF-DETR combined interactor', () => {
             finishInteraction();
 
             // Test clearing param: should omit it from request, not send null
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            withinVisibleToolsPopover(() => {
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            });
             cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
                 // Cleared param should either not be in extra_params or be an empty object
                 if (req.body.extra_params) {
@@ -364,18 +383,24 @@ context('RF-DETR combined interactor', () => {
 
             // Switch to plainInteractor: extra params control should be hidden
             selectInteractor(plainInteractor.id);
-            cy.get('.cvat-tools-interactor-extra-params').should('not.exist');
+            withinVisibleToolsPopover(() => {
+                cy.get('.cvat-tools-interactor-extra-params').should('not.exist');
+            });
 
             // Switch back to combinedInteractor: value should reset to default 0.2
             selectInteractor(combinedInteractor.id);
             cy.get('.cvat-tools-interactor-extra-params').should('exist');
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.2');
+            withinVisibleToolsPopover(() => {
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.20');
+            });
 
             // Test explicit default: after user explicitly edits field to 0.2, it should be sent
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.5');
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
-            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.2');
+            withinVisibleToolsPopover(() => {
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.5');
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+                cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.2');
+            });
             cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
                 expect(req.body).to.have.property('extra_params');
                 expect(req.body.extra_params).to.deep.equal({ confidence_threshold: 0.2 });
