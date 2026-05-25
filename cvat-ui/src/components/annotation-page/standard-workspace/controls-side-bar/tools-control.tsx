@@ -542,10 +542,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const posPoints = convertShapesForInteractor(shapes, 'points', 'positive');
         const negPoints = convertShapesForInteractor(shapes, 'points', 'negative');
 
-        // Filter out null and undefined values from extra params snapshot
+        // Filter out null/undefined values and schema defaults from extra params snapshot
+        const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
+        const schemaDefaults = new Map(
+            schema?.map((param) => [param.name, param.default]) ?? [],
+        );
         const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
             (acc, [key, value]) => {
-                if (value !== null && value !== undefined) {
+                if (value !== null && value !== undefined && value !== schemaDefaults.get(key)) {
                     acc[key] = value;
                 }
                 return acc;
@@ -694,10 +698,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     const { interactorExtraParams, interactorMapping } = this.state;
                     const interactor = activeInteractor as MLModel;
 
-                    // Filter out null and undefined values from extra params snapshot
+                    // Filter out null/undefined values and schema defaults from extra params snapshot
+                    const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
+                    const schemaDefaults = new Map(
+                        schema?.map((param) => [param.name, param.default]) ?? [],
+                    );
                     const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
                         (acc, [key, value]) => {
-                            if (value !== null && value !== undefined) {
+                            if (value !== null && value !== undefined && value !== schemaDefaults.get(key)) {
                                 acc[key] = value;
                             }
                             return acc;

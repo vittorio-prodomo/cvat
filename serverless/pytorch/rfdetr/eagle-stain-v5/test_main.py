@@ -182,3 +182,28 @@ def test_handler_passes_confidence_threshold_to_model_handler():
     main.handler(context, event)
 
     assert received_threshold == [0.35]
+
+
+def test_handler_returns_400_on_invalid_confidence_threshold():
+    """Verify main.handler catches ValueError from ModelHandler and returns HTTP 400."""
+    class InvalidThresholdModel:
+        def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
+            if confidence_threshold is not None and confidence_threshold > 1.0:
+                raise ValueError(f'confidence_threshold must be between 0.0 and 1.0, got {confidence_threshold}')
+            return []
+
+    context = DummyContext()
+    context.user_data.model = InvalidThresholdModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {},
+        'confidence_threshold': 1.2,
+    })
+
+    response = main.handler(context, event)
+
+    assert response.status_code == 400
+    error_body = json.loads(response.body)
+    assert 'error' in error_body
+    assert 'confidence_threshold' in error_body['error']

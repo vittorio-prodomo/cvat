@@ -29,12 +29,20 @@ def handler(context, event):
         f'mapping_labels={sorted(mapping.keys())}'
     )
 
-    shapes = context.user_data.model.handle(
-        image=image,
-        obj_bbox=obj_bbox,
-        mapping=mapping,
-        confidence_threshold=confidence_threshold,
-    )
+    try:
+        shapes = context.user_data.model.handle(
+            image=image,
+            obj_bbox=obj_bbox,
+            mapping=mapping,
+            confidence_threshold=confidence_threshold,
+        )
+    except ValueError as exc:
+        return context.Response(
+            body=json.dumps({'error': str(exc)}),
+            headers={},
+            content_type='application/json',
+            status_code=400,
+        )
 
     context.logger.info(
         'RF-DETR stain response summary: '
