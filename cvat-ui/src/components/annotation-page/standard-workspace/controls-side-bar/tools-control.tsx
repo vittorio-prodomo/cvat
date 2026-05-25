@@ -254,6 +254,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 pos_points: number[][];
                 obj_bbox: number[][];
             };
+            extraParams: Record<string, unknown>;
         } | null;
         closeFetchingMessage: (() => void) | null;
         noShapesMessage: (() => void) | null;
@@ -418,7 +419,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance } = this.props;
         const {
-            activeInteractor, fetching, interactorMapping, interactorExtraParams,
+            activeInteractor, fetching, interactorMapping,
         } = this.state;
 
         const { id, latestRequest } = this.interaction;
@@ -429,7 +430,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             return;
         }
 
-        const { interactor, data } = latestRequest;
+        const { interactor, data, extraParams } = latestRequest;
         this.interaction.latestRequest = null;
 
         try {
@@ -450,7 +451,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         ...data,
                         job: jobInstance.id,
                         ...(interactorMapping !== null ? { mapping: interactorMapping } : {}),
-                        extra_params: interactorExtraParams,
+                        extra_params: extraParams,
                     },
                 ) as InteractorResults;
 
@@ -507,7 +508,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private onInteraction = (e: Event): void => {
         const { frame, isActivated } = this.props;
-        const { activeInteractor } = this.state;
+        const { activeInteractor, interactorExtraParams } = this.state;
 
         if (!isActivated) {
             return;
@@ -522,6 +523,18 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const boxes = convertShapesForInteractor(shapes, 'rectangle', 'positive');
         const posPoints = convertShapesForInteractor(shapes, 'points', 'positive');
         const negPoints = convertShapesForInteractor(shapes, 'points', 'negative');
+
+        // Filter out null and undefined values from extra params snapshot
+        const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
+            (acc, [key, value]) => {
+                if (value !== null && value !== undefined) {
+                    acc[key] = value;
+                }
+                return acc;
+            },
+            {} as Record<string, unknown>,
+        );
+
         this.interaction.latestRequest = {
             interactor,
             data: {
@@ -530,6 +543,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 pos_points: posPoints,
                 neg_points: negPoints,
             },
+            extraParams: filteredExtraParams,
         };
 
         this.runInteractionRequest(this.interaction.id);

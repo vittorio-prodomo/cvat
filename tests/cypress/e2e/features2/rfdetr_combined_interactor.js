@@ -339,6 +339,29 @@ context('RF-DETR combined interactor', () => {
             cy.wait('@extraParamsCall');
             finishInteraction();
 
+            // Test clearing param: should omit it from request, not send null
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
+                // Cleared param should either not be in extra_params or be an empty object
+                if (req.body.extra_params) {
+                    expect(req.body.extra_params).to.not.have.property('confidence_threshold');
+                }
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [
+                            makeMaskShape({ label: 'bridge_damage', left: 150, top: 150 }),
+                        ],
+                    },
+                });
+            }).as('clearedParamCall');
+
+            startInteraction();
+            drawBoxPrompt(150, 150, 350, 350);
+            cy.wait('@clearedParamCall');
+            finishInteraction();
+
             // Switch to plainInteractor: extra params control should be hidden
             selectInteractor(plainInteractor.id);
             cy.get('.cvat-tools-interactor-extra-params').should('not.exist');
