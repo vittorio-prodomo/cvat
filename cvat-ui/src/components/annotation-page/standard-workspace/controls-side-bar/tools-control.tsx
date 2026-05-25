@@ -238,7 +238,16 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private interaction: {
         id: string | null;
         isAborted: boolean;
-        latestPostponedEvent: Event | null;
+        latestPostponedRequest: {
+            interactor: MLModel;
+            data: {
+                frame: number;
+                neg_points: number[][];
+                pos_points: number[][];
+                obj_bbox: number[][];
+            };
+            extraParams: Record<string, unknown>;
+        } | null;
         latestResponse: {
             rle: Int32Array;
             points: [number, number][];
@@ -291,7 +300,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         this.interaction = {
             id: null,
             isAborted: false,
-            latestPostponedEvent: null,
+            latestPostponedRequest: null,
             latestResponse: [],
             latestRequest: null,
             closeFetchingMessage: null,
@@ -342,7 +351,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             this.interaction = {
                 id: null,
                 isAborted: false,
-                latestPostponedEvent: null,
+                latestPostponedRequest: null,
                 latestResponse: [],
                 latestRequest: null,
                 closeFetchingMessage: null,
@@ -360,9 +369,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         if (
             prevProps.toolsBlockerState.algorithmsLocked &&
             !toolsBlockerState.algorithmsLocked &&
-            isActivated && mode === 'interaction' && this.interaction.latestPostponedEvent
+            isActivated && mode === 'interaction' && this.interaction.latestPostponedRequest
         ) {
-            this.onInteraction(this.interaction.latestPostponedEvent);
+            // Replay postponed request with the original interactor/params snapshot
+            this.interaction.latestRequest = this.interaction.latestPostponedRequest;
+            this.interaction.latestPostponedRequest = null;
+            this.runInteractionRequest(this.interaction.id as string);
         }
 
         if (prevState.thresholdValue !== thresholdValue) {
@@ -665,7 +677,32 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
                 // request data is enough, but it is postponed
                 if (toolsBlockerState.algorithmsLocked) {
-                    this.interaction.latestPostponedEvent = e;
+                    // Snapshot the complete request with current interactor + params
+                    const { frame } = this.props;
+                    const { interactorExtraParams } = this.state;
+                    const interactor = activeInteractor as MLModel;
+
+                    // Filter out null and undefined values from extra params snapshot
+                    const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
+                        (acc, [key, value]) => {
+                            if (value !== null && value !== undefined) {
+                                acc[key] = value;
+                            }
+                            return acc;
+                        },
+                        {} as Record<string, unknown>,
+                    );
+
+                    this.interaction.latestPostponedRequest = {
+                        interactor,
+                        data: {
+                            frame,
+                            obj_bbox: boxes,
+                            pos_points: posPoints,
+                            neg_points: negPoints,
+                        },
+                        extraParams: filteredExtraParams,
+                    };
                     return;
                 }
 
