@@ -38,7 +38,7 @@ export function buildExtraParamsDefaults(schema: ModelExtraParamSchemaItem[]): R
 interface ModelExtraParamsFormProps {
     schema: ModelExtraParamSchemaItem[];
     values: Record<string, unknown>;
-    onChange: (values: Record<string, unknown>) => void;
+    onChange: (name: string, value: unknown) => void;
     title?: string;
 }
 
@@ -52,7 +52,7 @@ function ModelExtraParamsForm(props: ModelExtraParamsFormProps): JSX.Element | n
     }
 
     const updateParam = (name: string, value: unknown): void => {
-        onChange({ ...values, [name]: value });
+        onChange(name, value);
     };
 
     return (

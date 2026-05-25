@@ -1339,8 +1339,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         <ModelExtraParamsForm
                             schema={activeInteractor.extraParamsSchema as ModelExtraParamSchemaItem[]}
                             values={interactorExtraParams}
-                            onChange={(values) => {
-                                this.setState({ interactorExtraParams: values });
+                            onChange={(name, value) => {
+                                this.setState((state) => ({
+                                    interactorExtraParams: { ...state.interactorExtraParams, [name]: value },
+                                }));
                             }}
                             title='Interactor parameters'
                         />

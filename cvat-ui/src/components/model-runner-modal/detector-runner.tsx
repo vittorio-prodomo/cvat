@@ -186,7 +186,9 @@ function DetectorRunner(props: Props): JSX.Element {
                 <ModelExtraParamsForm
                     schema={(model?.extraParamsSchema ?? []) as ModelExtraParamSchemaItem[]}
                     values={extraParams}
-                    onChange={setExtraParams}
+                    onChange={(name, value) => {
+                        setExtraParams((prev) => ({ ...prev, [name]: value }));
+                    }}
                 />
             )}
             {isReId ? (
