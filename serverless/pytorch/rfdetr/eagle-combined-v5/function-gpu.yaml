@@ -1,0 +1,96 @@
+metadata:
+  name: pth-rfdetr-eagle-combined-v5
+  namespace: cvat
+  annotations:
+    name: RF-DETR Eagle Combined v5
+    version: 2
+    type: interactor
+    framework: pytorch
+    spec: |
+      [
+        {"id": 0, "name": "(A13) danno_urto", "type": "mask"},
+        {"id": 1, "name": "(C1) difetti_esecuzione", "type": "mask"},
+        {"id": 2, "name": "(C2) effloresc_essudaz_pop-out", "type": "mask"},
+        {"id": 3, "name": "(C5) infiltraz_cls", "type": "mask"},
+        {"id": 4, "name": "(C6) superf_bagn_dilav_percolaz", "type": "mask"},
+        {"id": 5, "name": "(C7) ammaloram_cls", "type": "mask"},
+        {"id": 6, "name": "(C8) venatura_ruggine_armature", "type": "mask"},
+        {"id": 7, "name": "(C9) fessure_distacchi_corr_staffe", "type": "mask"},
+        {"id": 8, "name": "(C10) fessure_distacchi_corr_arm_long", "type": "mask"},
+        {"id": 9, "name": "(C13) esposiz_arm_precompress", "type": "mask"},
+        {"id": 10, "name": "(C14) danno_urto", "type": "mask"},
+        {"id": 11, "name": "(C16) fessure_verticali", "type": "mask"},
+        {"id": 12, "name": "(C18) fessure_longitudinali", "type": "mask"},
+        {"id": 13, "name": "(C19) fessure_trasversali", "type": "mask"}
+      ]
+    min_pos_points: 0
+    min_neg_points: 0
+    startswith_box: true
+    help_message: Draw a crop box, run both RF-DETR Eagle shape and stain models on the ROI, and create merged masks when the same mapped label is detected by both models.
+
+spec:
+  description: Box-only crop-driven instance segmentation with combined RF-DETR shape and stain models
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 60s
+  env:
+    - name: PYTHONPATH
+      value: /opt/nuclio/rfdetr_interactor:/opt/bdd/training-toolkit/src:/opt/bdd/rf-detr/src
+    - name: SHAPE_CHECKPOINT_DIR
+      value: /opt/bdd/runs/echo-combined-v5/shape_round1/checkpoints
+    - name: SHAPE_CONFIG_PATH
+      value: /opt/bdd/runs/echo-combined-v5/shape_round1/config.yaml
+    - name: STAIN_CHECKPOINT_DIR
+      value: /opt/bdd/runs/echo-combined-v5/stain_round1/checkpoints
+    - name: STAIN_CONFIG_PATH
+      value: /opt/bdd/runs/echo-combined-v5/stain_round1/config.yaml
+    - name: MODEL_INPUT_SIZE
+      value: '504'
+    - name: MODEL_CONF_THRESHOLD
+      value: '0.2'
+  build:
+    image: cvat.rfdetr.eagle.combined.v5:latest-gpu
+    baseImage: pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+    directives:
+      preCopy:
+        - kind: WORKDIR
+          value: /opt/nuclio/rfdetr_interactor
+        - kind: RUN
+          value: >-
+            apt-get update &&
+            apt-get -y install --no-install-recommends python3 python3-pip libglib2.0-0 libgl1 libxcb1 &&
+            rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: >-
+            python -m pip install --upgrade pip setuptools wheel
+        - kind: RUN
+          value: >-
+            python -m pip install pillow pytorch-lightning 'numpy<2'
+            torchvision==0.16.0 requests pycocotools scipy tqdm transformers==4.42.0
+            peft==0.10.0 rf100vl 'pydantic<3' supervision matplotlib roboflow
+            opencv-python-headless==4.10.0.84
+  volumes:
+    - volume:
+        name: bridge-defect-detection
+        hostPath:
+          path: "/data/projects/bridge_defect_detection"
+      volumeMount:
+        name: bridge-defect-detection
+        mountPath: "/opt/bdd"
+        readOnly: true
+  triggers:
+    myHttpTrigger:
+      kind: 'http'
+      numWorkers: 1
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume
