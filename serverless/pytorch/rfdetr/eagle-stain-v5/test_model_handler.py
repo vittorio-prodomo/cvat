@@ -59,7 +59,7 @@ class DummyBackend:
     def __init__(self, conf_threshold=0.2, **kwargs):
         self.conf_threshold = conf_threshold
     
-    def predict(self, image):
+    def predict(self, image, conf_threshold=None):
         """Return mock predictions matching PredictedInstance format."""
         # Return two mock predictions: one mapped, one unmapped
         h, w = image.shape[:2]
@@ -153,7 +153,7 @@ def test_handle_uses_crop_preprocessing_flow(monkeypatch):
         def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
-        def predict(self, image):
+        def predict(self, image, conf_threshold=None):
             received_shape.append(image.shape)
             return []
     
@@ -222,7 +222,7 @@ def test_handle_clips_out_of_bounds_bbox_instead_of_crashing(monkeypatch):
         def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
-        def predict(self, image):
+        def predict(self, image, conf_threshold=None):
             h, w = image.shape[:2]
             mask = np.ones((h, w), dtype=np.uint8)
             return [
@@ -294,7 +294,7 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
         def __init__(self, conf_threshold=0.2, **kwargs):
             pass
         
-        def predict(self, image):
+        def predict(self, image, conf_threshold=None):
             h, w = image.shape[:2]
             mask = np.ones((h, w), dtype=np.uint8)
             return [
@@ -346,3 +346,80 @@ def test_handle_normalizes_inverted_bbox_instead_of_crashing(monkeypatch):
 
 def test_model_handler_uses_local_module():
     assert Path(MODEL_HANDLER_MODULE.__file__).resolve() == MODEL_HANDLER_PATH
+
+
+def test_handle_passes_request_threshold_override_to_backend_predict(monkeypatch):
+    """Verify ModelHandler.handle() forwards confidence_threshold to backend.predict()."""
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    
+    received_threshold = []
+    
+    class ThresholdCaptureBackend:
+        def __init__(self, conf_threshold=0.2, **kwargs):
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_threshold.append(conf_threshold)
+            return []
+    
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', ThresholdCaptureBackend)
+    
+    handler = ModelHandler()
+    image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
+    handler.handle(
+        image=image,
+        obj_bbox=[[0, 0], [39, 29]],
+        mapping={},
+        confidence_threshold=0.35,
+    )
+    
+    assert received_threshold == [0.35]
+
+
+def test_handle_raises_value_error_for_out_of_range_confidence_threshold(monkeypatch):
+    """Verify ModelHandler.handle() raises ValueError for threshold outside [0.05, 0.99]."""
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
+    
+    handler = ModelHandler()
+    image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
+    
+    with pytest.raises(ValueError, match='confidence_threshold'):
+        handler.handle(
+            image=image,
+            obj_bbox=[[0, 0], [39, 29]],
+            mapping={},
+            confidence_threshold=1.2,
+        )
+
+
+def test_handle_uses_env_default_when_confidence_threshold_is_none(monkeypatch):
+    """Verify ModelHandler.handle() uses env default when confidence_threshold is None."""
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    
+    received_threshold = []
+    
+    class ThresholdCaptureBackend:
+        def __init__(self, conf_threshold=0.2, **kwargs):
+            self.conf_threshold = conf_threshold
+        
+        def predict(self, image, conf_threshold=None):
+            received_threshold.append(conf_threshold)
+            return []
+    
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', ThresholdCaptureBackend)
+    
+    handler = ModelHandler()
+    image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
+    handler.handle(
+        image=image,
+        obj_bbox=[[0, 0], [39, 29]],
+        mapping={},
+        confidence_threshold=None,
+    )
+    
+    # Should receive env default 0.2
+    assert received_threshold == [0.2]

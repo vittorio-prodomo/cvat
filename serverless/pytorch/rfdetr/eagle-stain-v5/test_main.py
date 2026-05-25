@@ -71,7 +71,7 @@ class DummyContext:
 
 
 class DummyModel:
-    def handle(self, *, image, obj_bbox, mapping):
+    def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
         assert image.size == (4, 4)
         assert obj_bbox == [[1, 1], [3, 3]]
         assert mapping == {'(C5) infiltraz_cls': {'name': 'infiltraz_cls', 'attributes': {}}}
@@ -159,3 +159,26 @@ def test_main_uses_local_model_handler_module():
     loaded_model_handler = sys.modules[main.ModelHandler.__module__]
 
     assert Path(loaded_model_handler.__file__).resolve() == MODEL_HANDLER_PATH
+
+
+def test_handler_passes_confidence_threshold_to_model_handler():
+    """Verify main.handler reads confidence_threshold from request and forwards it to ModelHandler.handle()."""
+    received_threshold = []
+
+    class ThresholdCaptureModel:
+        def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
+            received_threshold.append(confidence_threshold)
+            return []
+
+    context = DummyContext()
+    context.user_data.model = ThresholdCaptureModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {},
+        'confidence_threshold': 0.35,
+    })
+
+    main.handler(context, event)
+
+    assert received_threshold == [0.35]

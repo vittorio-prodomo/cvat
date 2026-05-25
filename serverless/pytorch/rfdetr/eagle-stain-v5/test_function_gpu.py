@@ -11,6 +11,17 @@ def test_function_gpu_declares_box_only_interactor():
     assert '0.2' in manifest
 
 
+def test_function_gpu_declares_extra_params_schema_for_confidence_threshold():
+    manifest = Path(__file__).with_name('function-gpu.yaml').read_text(encoding='utf-8')
+
+    assert 'extra_params_schema' in manifest
+    assert 'confidence_threshold' in manifest
+    assert 'Inference threshold' in manifest
+    assert '"default":0.2' in manifest or '"default": 0.2' in manifest
+    assert '"min":0.05' in manifest or '"min": 0.05' in manifest
+    assert '"max":0.99' in manifest or '"max": 0.99' in manifest
+
+
 def test_function_gpu_references_stain_checkpoint_root():
     manifest = Path(__file__).with_name('function-gpu.yaml').read_text(encoding='utf-8')
 

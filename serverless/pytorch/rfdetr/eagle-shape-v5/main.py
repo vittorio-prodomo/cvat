@@ -19,6 +19,7 @@ def handler(context, event):
     image = Image.open(buf).convert('RGB')
     obj_bbox = data.get('obj_bbox')
     mapping = data.get('mapping', {})
+    confidence_threshold = data.get('confidence_threshold')
 
     context.logger.info(
         'RF-DETR shape request summary: '
@@ -32,6 +33,7 @@ def handler(context, event):
         image=image,
         obj_bbox=obj_bbox,
         mapping=mapping,
+        confidence_threshold=confidence_threshold,
     )
 
     context.logger.info(
