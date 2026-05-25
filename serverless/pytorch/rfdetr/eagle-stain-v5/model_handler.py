@@ -1,3 +1,4 @@
+import math
 import logging
 import os
 from pathlib import Path
@@ -35,6 +36,11 @@ def validate_confidence_threshold(confidence_threshold, env_default):
     if not isinstance(confidence_threshold, (int, float)):
         raise ValueError(
             f'confidence_threshold must be a number, got {type(confidence_threshold).__name__}'
+        )
+
+    if not math.isfinite(confidence_threshold):
+        raise ValueError(
+            f'confidence_threshold must be finite, got {confidence_threshold}'
         )
     
     # Validate range

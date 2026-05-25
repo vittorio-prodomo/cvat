@@ -395,6 +395,24 @@ def test_handle_raises_value_error_for_out_of_range_confidence_threshold(monkeyp
         )
 
 
+def test_handle_raises_value_error_for_non_finite_confidence_threshold(monkeypatch):
+    """Verify ModelHandler.handle() rejects NaN confidence thresholds."""
+    monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
+    monkeypatch.setenv('MODEL_CONF_THRESHOLD', '0.2')
+    monkeypatch.setattr(MODEL_HANDLER_MODULE, 'RFDETRStainBackend', DummyBackend)
+
+    handler = ModelHandler()
+    image = Image.fromarray(np.full((30, 40, 3), 255, dtype=np.uint8))
+
+    with pytest.raises(ValueError, match='confidence_threshold'):
+        handler.handle(
+            image=image,
+            obj_bbox=[[0, 0], [39, 29]],
+            mapping={},
+            confidence_threshold=float('nan'),
+        )
+
+
 def test_handle_uses_env_default_when_confidence_threshold_is_none(monkeypatch):
     """Verify ModelHandler.handle() uses env default when confidence_threshold is None."""
     monkeypatch.setenv('MODEL_INPUT_SIZE', '504')
