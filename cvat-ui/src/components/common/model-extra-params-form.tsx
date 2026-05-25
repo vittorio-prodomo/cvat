@@ -88,9 +88,14 @@ function ModelExtraParamsForm(props: ModelExtraParamsFormProps): JSX.Element | n
                                         if (typeof v !== 'number' || Number.isNaN(v)) {
                                             return;
                                         }
-                                        const clamped = param.min !== undefined && param.max !== undefined ?
-                                            clamp(v, param.min, param.max) :
-                                            v;
+                                        let clamped = v;
+                                        if (param.min !== undefined && param.max !== undefined) {
+                                            clamped = clamp(v, param.min, param.max);
+                                        } else if (param.min !== undefined) {
+                                            clamped = Math.max(v, param.min);
+                                        } else if (param.max !== undefined) {
+                                            clamped = Math.min(v, param.max);
+                                        }
                                         updateParam(param.name, clamped);
                                     }}
                                 />
