@@ -13,6 +13,7 @@ import { QuestionCircleOutlined } from '@ant-design/icons';
 
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { clamp } from 'utils/math';
+import './styles.scss';
 
 export interface ModelExtraParamSchemaItem {
     name: string;
@@ -85,6 +86,10 @@ function ModelExtraParamsForm(props: ModelExtraParamsFormProps): JSX.Element | n
                                     step={param.step ?? 1}
                                     value={currentVal as number | null}
                                     onChange={(v) => {
+                                        if (v === null) {
+                                            updateParam(param.name, null);
+                                            return;
+                                        }
                                         if (typeof v !== 'number' || Number.isNaN(v)) {
                                             return;
                                         }
