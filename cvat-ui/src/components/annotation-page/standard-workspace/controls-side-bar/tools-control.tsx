@@ -45,6 +45,10 @@ import DetectorRunner, { AnnotateTaskRequestBody } from 'components/model-runner
 import LabelSelector from 'components/label-selector/label-selector';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import CVATMarkdown from 'components/common/cvat-markdown';
+import ModelExtraParamsForm, {
+    buildExtraParamsDefaults,
+    ModelExtraParamSchemaItem,
+} from 'components/common/model-extra-params-form';
 
 import ApproximationAccuracy, {
     thresholdFromAccuracy,
@@ -170,6 +174,7 @@ interface State {
     mode: 'detection' | 'interaction' | 'tracking';
     portals: React.ReactPortal[];
     interactorMapping: ServerMapping | null;
+    interactorExtraParams: Record<string, unknown>;
 }
 
 type DetectorResults = Extract<Awaited<ReturnType<typeof core.lambda.call>>, { version: number }>;
@@ -259,10 +264,15 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         const supportedTrackers = this.getSupportedTrackers();
 
+        const firstInteractor = props.interactors.length ? props.interactors[0] : null;
+        const interactorExtraParams = firstInteractor?.extraParamsSchema ?
+            buildExtraParamsDefaults(firstInteractor.extraParamsSchema as ModelExtraParamSchemaItem[]) :
+            {};
+
         this.state = {
             convertMasksToPolygons: false,
             startInteractingWithBox: (localStorage.getItem(startWithBoxStorageItem) ?? 'true') === 'true',
-            activeInteractor: props.interactors.length ? props.interactors[0] : null,
+            activeInteractor: firstInteractor,
             activeTracker: supportedTrackers.length ? supportedTrackers[0] : null,
             activeLabelID: props.labels.length ? props.labels[0].id as number : null,
             approxPolyAccuracy: props.defaultApproxPolyAccuracy,
@@ -274,6 +284,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             mode: 'interaction',
             portals: [],
             interactorMapping: null,
+            interactorExtraParams,
         };
 
         this.interaction = {
@@ -406,7 +417,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance } = this.props;
-        const { activeInteractor, fetching, interactorMapping } = this.state;
+        const {
+            activeInteractor, fetching, interactorMapping, interactorExtraParams,
+        } = this.state;
 
         const { id, latestRequest } = this.interaction;
         if (id !== interactionId || !latestRequest || fetching) {
@@ -437,6 +450,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         ...data,
                         job: jobInstance.id,
                         ...(interactorMapping !== null ? { mapping: interactorMapping } : {}),
+                        extra_params: interactorExtraParams,
                     },
                 ) as InteractorResults;
 
@@ -666,9 +680,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             });
         }
 
+        const interactorExtraParams = interactor.extraParamsSchema ?
+            buildExtraParamsDefaults(interactor.extraParamsSchema as ModelExtraParamSchemaItem[]) :
+            {};
+
         this.setState({
             activeInteractor: interactor,
             interactorMapping: null,
+            interactorExtraParams,
         });
     };
 
@@ -1233,6 +1252,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         } = this.props;
         const {
             activeInteractor, activeLabelID, fetching, startInteractingWithBox, convertMasksToPolygons,
+            interactorExtraParams,
         } = this.state;
 
         if (!interactors.length) {
@@ -1313,6 +1333,19 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 )}
 
                 {!hasMappableLabels && this.renderLabelBlock()}
+
+                {activeInteractor?.extraParamsSchema && activeInteractor.extraParamsSchema.length > 0 && (
+                    <div className='cvat-tools-interactor-extra-params'>
+                        <ModelExtraParamsForm
+                            schema={activeInteractor.extraParamsSchema as ModelExtraParamSchemaItem[]}
+                            values={interactorExtraParams}
+                            onChange={(values) => {
+                                this.setState({ interactorExtraParams: values });
+                            }}
+                            title='Interactor parameters'
+                        />
+                    </div>
+                )}
 
                 <div className='cvat-tools-interactor-setups'>
                     <div>

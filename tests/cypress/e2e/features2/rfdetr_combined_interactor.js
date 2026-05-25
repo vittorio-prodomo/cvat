@@ -12,6 +12,7 @@ function makeInteractorModel({
     minPosPoints = 0,
     minNegPoints = 0,
     startWithBoxOptional = false,
+    extraParamsSchema = [],
 }) {
     return {
         id,
@@ -24,6 +25,7 @@ function makeInteractorModel({
         min_neg_points: minNegPoints,
         startswith_box: startWithBox,
         startswith_box_optional: startWithBoxOptional,
+        extra_params_schema: extraParamsSchema,
     };
 }
 
@@ -212,6 +214,21 @@ context('RF-DETR combined interactor', () => {
         id: 'test-rfdetr-combined',
         name: 'Mocked RF-DETR combined interactor',
         labels: ['(A13) danno_urto', '(C5) infiltraz_cls'],
+        extraParamsSchema: [{
+            name: 'confidence_threshold',
+            type: 'number',
+            label: 'Inference threshold',
+            default: 0.2,
+            min: 0.05,
+            max: 0.99,
+            step: 0.01,
+        }],
+    });
+
+    const plainInteractor = makeInteractorModel({
+        id: 'test-plain-interactor',
+        name: 'Mocked plain interactor',
+        labels: ['person'],
     });
 
     let createdTaskID = null;
@@ -285,6 +302,51 @@ context('RF-DETR combined interactor', () => {
             cy.get('.cvat-objects-sidebar-state-item').should('have.length', 2);
             cy.get('.cvat-objects-sidebar-state-item').first().should('contain', 'bridge_damage');
             cy.get('.cvat-objects-sidebar-state-item').last().should('contain', 'bridge_stain');
+        });
+
+        it('Should wire extra params schema and clamp values', () => {
+            openInteractorsWithModels([combinedInteractor, plainInteractor], 'getInteractorFunctionsWithExtraParams');
+            selectInteractor(combinedInteractor.id);
+
+            // Extra params control should be visible for combinedInteractor
+            cy.get('.cvat-tools-interactor-extra-params').should('exist');
+            cy.get('.cvat-model-extra-params-row').should('exist');
+
+            // Test clamping: entering 1.2 should clamp to 0.99
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('1.2');
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.99');
+
+            // Test sending extra_params in request body with value 0.35
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').clear();
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').type('0.35');
+            cy.intercept('POST', '**/api/lambda/functions/test-rfdetr-combined**', (req) => {
+                expect(req.body).to.have.property('extra_params');
+                expect(req.body.extra_params).to.deep.equal({ confidence_threshold: 0.35 });
+
+                req.reply({
+                    statusCode: 200,
+                    body: {
+                        shapes: [
+                            makeMaskShape({ label: 'bridge_damage', left: 100, top: 100 }),
+                        ],
+                    },
+                });
+            }).as('extraParamsCall');
+
+            startInteraction();
+            drawBoxPrompt(100, 100, 300, 300);
+            cy.wait('@extraParamsCall');
+            finishInteraction();
+
+            // Switch to plainInteractor: extra params control should be hidden
+            selectInteractor(plainInteractor.id);
+            cy.get('.cvat-tools-interactor-extra-params').should('not.exist');
+
+            // Switch back to combinedInteractor: value should reset to default 0.2
+            selectInteractor(combinedInteractor.id);
+            cy.get('.cvat-tools-interactor-extra-params').should('exist');
+            cy.get('.cvat-model-extra-params-row .ant-input-number-input').should('have.value', '0.2');
         });
     });
 });
