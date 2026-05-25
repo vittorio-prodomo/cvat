@@ -246,6 +246,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 pos_points: number[][];
                 obj_bbox: number[][];
             };
+            mapping: ServerMapping | null;
             extraParams: Record<string, unknown>;
         } | null;
         latestResponse: {
@@ -263,6 +264,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 pos_points: number[][];
                 obj_bbox: number[][];
             };
+            mapping: ServerMapping | null;
             extraParams: Record<string, unknown>;
         } | null;
         closeFetchingMessage: (() => void) | null;
@@ -371,10 +373,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             !toolsBlockerState.algorithmsLocked &&
             isActivated && mode === 'interaction' && this.interaction.latestPostponedRequest
         ) {
+            // Ensure interaction id exists before replaying postponed request
+            if (!this.interaction.id) {
+                this.interaction.id = lodash.uniqueId('interaction_');
+            }
             // Replay postponed request with the original interactor/params snapshot
             this.interaction.latestRequest = this.interaction.latestPostponedRequest;
             this.interaction.latestPostponedRequest = null;
-            this.runInteractionRequest(this.interaction.id as string);
+            this.runInteractionRequest(this.interaction.id);
         }
 
         if (prevState.thresholdValue !== thresholdValue) {
@@ -430,9 +436,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
         const { jobInstance } = this.props;
-        const {
-            activeInteractor, fetching, interactorMapping,
-        } = this.state;
+        const { activeInteractor, fetching } = this.state;
 
         const { id, latestRequest } = this.interaction;
         if (id !== interactionId || !latestRequest || fetching) {
@@ -442,7 +446,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             return;
         }
 
-        const { interactor, data, extraParams } = latestRequest;
+        const {
+            interactor, data, mapping, extraParams,
+        } = latestRequest;
         this.interaction.latestRequest = null;
 
         try {
@@ -462,7 +468,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     {
                         ...data,
                         job: jobInstance.id,
-                        ...(interactorMapping !== null ? { mapping: interactorMapping } : {}),
+                        ...(mapping !== null ? { mapping } : {}),
                         extra_params: extraParams,
                     },
                 ) as InteractorResults;
@@ -520,7 +526,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private onInteraction = (e: Event): void => {
         const { frame, isActivated } = this.props;
-        const { activeInteractor, interactorExtraParams } = this.state;
+        const { activeInteractor, interactorExtraParams, interactorMapping } = this.state;
 
         if (!isActivated) {
             return;
@@ -555,6 +561,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 pos_points: posPoints,
                 neg_points: negPoints,
             },
+            mapping: interactorMapping,
             extraParams: filteredExtraParams,
         };
 
@@ -677,9 +684,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
                 // request data is enough, but it is postponed
                 if (toolsBlockerState.algorithmsLocked) {
-                    // Snapshot the complete request with current interactor + params
+                    // Ensure interaction id exists before postponing request
+                    if (!this.interaction.id) {
+                        this.interaction.id = lodash.uniqueId('interaction_');
+                    }
+
+                    // Snapshot the complete request with current interactor + params + mapping
                     const { frame } = this.props;
-                    const { interactorExtraParams } = this.state;
+                    const { interactorExtraParams, interactorMapping } = this.state;
                     const interactor = activeInteractor as MLModel;
 
                     // Filter out null and undefined values from extra params snapshot
@@ -701,6 +713,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             pos_points: posPoints,
                             neg_points: negPoints,
                         },
+                        mapping: interactorMapping,
                         extraParams: filteredExtraParams,
                     };
                     return;
