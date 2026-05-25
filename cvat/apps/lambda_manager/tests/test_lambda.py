@@ -335,6 +335,65 @@ class LambdaTestCases(_LambdaTestCaseBase):
         actual_labels = {label["name"] for label in combined_func["labels_v2"]}
         self.assertEqual(actual_labels, expected_labels)
 
+    def test_api_v2_lambda_functions_list_includes_combined_rfdetr_threshold_schema(self):
+        response = self._get_request(LAMBDA_FUNCTIONS_PATH, self.admin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        combined_func = next((f for f in response.data if f["id"] == id_function_interactor_combined), None)
+        self.assertIsNotNone(combined_func, f"Combined interactor {id_function_interactor_combined} not found")
+
+        expected_schema = [
+            {
+                "name": "confidence_threshold",
+                "type": "number",
+                "label": "Inference threshold",
+                "default": 0.2,
+                "min": 0.05,
+                "max": 0.99,
+                "step": 0.01,
+                "description": "Minimum confidence threshold applied during RF-DETR inference.",
+            }
+        ]
+        self.assertEqual(combined_func["extra_params_schema"], expected_schema)
+
+    def test_api_v2_lambda_functions_create_interactor_with_extra_params(self):
+        """extra_params sent in the request body must appear flattened in the Nuclio payload."""
+        captured_payload = {}
+
+        # Create a task with labels that match the combined RF-DETR interactor
+        task_spec = deepcopy(tasks["main"])
+        task_spec["labels"] = [
+            {"name": "(A13) danno_urto", "type": "mask"},
+            {"name": "(C1) difetti_esecuzione", "type": "mask"},
+        ]
+        task = self._create_task(task_spec, self._generate_task_images(1))
+
+        def capturing_invoke(func, payload):
+            captured_payload.update(payload)
+            return []  # empty interactor result
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=capturing_invoke,
+        ):
+            data = {
+                "task": task["id"],
+                "frame": 0,
+                "pos_points": [],
+                "neg_points": [],
+                "obj_bbox": [[10, 10], [100, 100]],
+                "mapping": {"(A13) danno_urto": {"name": "(A13) danno_urto"}},
+                "extra_params": {"confidence_threshold": 0.35},
+            }
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor_combined}",
+                self.admin,
+                data=data,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, f"Response data: {response.data}")
+        self.assertAlmostEqual(captured_payload.get("confidence_threshold"), 0.35)
+
     def test_api_v2_lambda_functions_read(self):
         ids_functions = [
             id_function_detector,
