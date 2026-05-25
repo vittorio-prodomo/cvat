@@ -226,3 +226,26 @@ def test_handler_returns_400_for_invalid_threshold():
     error_body = json.loads(response.body)
     assert 'error' in error_body
     assert 'confidence_threshold' in error_body['error']
+
+
+def test_handler_returns_400_for_non_finite_threshold():
+    """Test that handler returns 400 when confidence_threshold is non-finite (NaN, inf, -inf)."""
+    class NonFiniteThresholdModel:
+        def handle(self, *, image, obj_bbox, mapping, confidence_threshold=None):
+            raise ValueError("confidence_threshold must be finite, got: nan")
+    
+    context = DummyContext()
+    context.user_data.model = NonFiniteThresholdModel()
+    event = SimpleNamespace(body={
+        'image': encode_image(),
+        'obj_bbox': [[1, 1], [3, 3]],
+        'mapping': {},
+        'confidence_threshold': 'nan',
+    })
+    
+    response = main.handler(context, event)
+    
+    assert response.status_code == 400
+    error_body = json.loads(response.body)
+    assert 'error' in error_body
+    assert 'confidence_threshold' in error_body['error']

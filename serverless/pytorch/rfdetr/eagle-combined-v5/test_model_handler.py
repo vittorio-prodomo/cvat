@@ -429,6 +429,22 @@ def test_handle_raises_on_invalid_threshold(mock_image, mock_bbox, mock_mapping)
     # Test out of range (too high)
     with pytest.raises(ValueError, match="confidence_threshold must be between 0.05 and 0.99"):
         handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=1.5)
+    
+    # Test non-finite values (NaN)
+    with pytest.raises(ValueError, match="confidence_threshold must be finite"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=float('nan'))
+    
+    # Test non-finite values (inf)
+    with pytest.raises(ValueError, match="confidence_threshold must be finite"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=float('inf'))
+    
+    # Test non-finite values (-inf)
+    with pytest.raises(ValueError, match="confidence_threshold must be finite"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold=float('-inf'))
+    
+    # Test NaN as string
+    with pytest.raises(ValueError, match="confidence_threshold must be finite"):
+        handler.handle(pil_image, mock_bbox, mock_mapping, confidence_threshold='nan')
 
 
 def test_handle_uses_env_default_when_no_request_threshold(mock_image, mock_bbox, mock_mapping):

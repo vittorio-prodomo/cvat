@@ -1,3 +1,4 @@
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,12 @@ def _validate_confidence_threshold(confidence_threshold):
     except (TypeError, ValueError):
         raise ValueError(
             f"confidence_threshold must be a number, got: {confidence_threshold!r}"
+        )
+    
+    # Check for non-finite values (NaN, inf, -inf)
+    if not math.isfinite(threshold_value):
+        raise ValueError(
+            f"confidence_threshold must be finite, got: {threshold_value}"
         )
     
     # Check range
