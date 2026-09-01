@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT SAM3 Runtime Hardening Design</title>
+
+<link rel="stylesheet" media="(prefers-color-scheme: light)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" integrity="sha512-rO+olRTkcf304DQBxSWxln8JXCzTHlKnIdnMUwYvQa9/Jd4cQaNkItIUj6Z4nvW1dqK0SKXLbn9h4KwZTNtAyw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+
+<style>
+  :root {
+    --bg: #fbfbfa; --surface: #fff; --text: #1f2328; --muted: #656d76;
+    --border: #e3e6ea; --accent: #4f46e5; --accent-soft: #eef0fe;
+    --code-bg: #f5f6f8; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --radius: 12px; --info: #2563eb; --info-bg: #eef4ff; --warn: #b45309;
+    --warn-bg: #fff7ed; --ok: #047857; --ok-bg: #ecfdf5; --bad: #b91c1c; --bad-bg: #fef2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --surface: #161922; --text: #e6e8eb; --muted: #9aa4b2;
+      --border: #262b36; --accent: #8b89ff; --accent-soft: #1e2030; --code-bg: #1b1f29;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 20px rgba(0,0,0,.3);
+      --info-bg: #13213b; --warn-bg: #2a1f12; --ok-bg: #0e231c; --bad-bg: #2a1416;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+  .topbar .spacer { flex: 1; }
+  .action {
+    font: inherit; font-size: 13px; font-weight: 550; cursor: pointer; padding: 6px 12px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); transition: .15s;
+  }
+  .action:hover { border-color: var(--accent); color: var(--accent); }
+  .layout {
+    display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px;
+    max-width: 1140px; margin: 0 auto; padding: 40px 24px 96px;
+  }
+  .toc { position: sticky; top: 76px; align-self: start; font-size: 13.5px; max-height: calc(100vh - 100px); overflow: auto; }
+  .toc-title { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--muted); margin: 0 0 10px 4px; }
+  .toc a { display: block; color: var(--muted); text-decoration: none; padding: 4px 10px; border-radius: 7px; border-left: 2px solid transparent; line-height: 1.4; }
+  .toc a:hover { color: var(--text); background: var(--accent-soft); }
+  .toc a.h3 { padding-left: 22px; font-size: 12.5px; }
+  .toc a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+  .content { min-width: 0; }
+  .content > *:first-child { margin-top: 0; }
+  h1 { font-size: 30px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
+  .doc-sub { color: var(--muted); font-size: 16px; margin: 0 0 4px; }
+  .doc-meta { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+  h2 { font-size: 22px; letter-spacing: -.01em; margin: 44px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); scroll-margin-top: 76px; }
+  h3 { font-size: 17px; margin: 28px 0 10px; scroll-margin-top: 76px; }
+  a { color: var(--accent); }
+  code { background: var(--code-bg); padding: .15em .4em; border-radius: 5px; font-size: .88em; font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; overflow: auto; }
+  pre code { background: none; padding: 0; font-size: 13px; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-soft); font-weight: 600; }
+  .callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 12px 16px; margin: 18px 0; background: var(--surface); }
+  .callout .label { font-weight: 650; font-size: 13px; margin-bottom: 2px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.info { border-left-color: var(--info); background: var(--info-bg); }
+  .callout.info .label { color: var(--info); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .callout.warn .label { color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+  .callout.ok .label { color: var(--ok); }
+  .callout.bad { border-left-color: var(--bad); background: var(--bad-bg); }
+  .callout.bad .label { color: var(--bad); }
+  .option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
+  .option-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; background: var(--surface); box-shadow: var(--shadow); }
+  .option-card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .option-card h4 { margin: 0 0 4px; font-size: 16px; }
+  .option-card .tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; margin-bottom: 10px; }
+  .option-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 14px; }
+  .option-card .pro::marker { content: "✓ "; }
+  .option-card .con::marker { content: "✗ "; }
+  details { border: 1px solid var(--border); border-radius: 10px; padding: 0 16px; margin: 16px 0; background: var(--surface); }
+  details[open] { padding-bottom: 8px; }
+  summary { cursor: pointer; font-weight: 600; padding: 12px 0; list-style-position: inside; }
+  summary:hover { color: var(--accent); }
+  .mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 18px 0; text-align: center; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 550; opacity: 0; pointer-events: none; transition: .25s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  footer { max-width: 1140px; margin: 0 auto; padding: 24px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  }
+  @media print {
+    .topbar, .toc, .action, .toast { display: none !important; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .option-card, .callout, pre, .mermaid, details { box-shadow: none; break-inside: avoid; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="title">CVAT SAM3 Runtime Hardening Design</span>
+  <span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-title">On this page</div>
+    <div id="toc-list"></div>
+  </nav>
+
+  <main class="content">
+    <h1>CVAT SAM3 Runtime Hardening Design</h1>
+    <p class="doc-sub">A reproducible, credential-free Nuclio runtime for the existing native SAM3 image interactor.</p>
+    <p class="doc-meta">2026-09-01 · CVAT personal fork · Approved design implemented in an uncommitted worktree; not deployed</p>
+
+    <h2>Executive summary</h2>
+    <p>
+      Keep the current native SAM3 point-and-box interactor, but replace its drifting runtime and startup-time
+      Hugging Face download with pinned software and a verified local checkpoint. The function will mount the
+      original <code>facebook/sam3</code> checkpoint read-only, so no Hugging Face token is stored in Nuclio or
+      Docker. Build, import, and GPU-initialization checks are included; live function deployment remains a
+      separate approval boundary.
+    </p>
+    <div class="callout ok">
+      <div class="label">Approved direction</div>
+      <p>Native SAM3 code + original <code>sam3.pt</code> + pinned runtime + read-only host mount. SAM3.1, Transformers migration, RF-DETR, commit, push, and live deployment are excluded.</p>
+    </div>
+    <div class="callout info">
+      <div class="label">Verified implementation evidence</div>
+      <p>Independent review drove additional runtime checksum validation, crash-durable checkpoint promotion, a digest-pinned CUDA base, a timestamped Ubuntu snapshot, a complete 58-package Python lock (including the isolated PEP 517 build environment), and a minimal Triton JIT toolchain. Candidate <code>hardening-20260901-r4</code> (<code>sha256:2ff25e5cbeeb4f9317155910ee6211b1316cbe41cacbab49ac58b593f3739053</code>) completed real point-only and box-only GPU inference with post-processing active; it remains undeployed and uncommitted.</p>
+    </div>
+
+    <h2>Scope and boundaries</h2>
+    <table>
+      <thead><tr><th>In scope</th><th>Out of scope</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Python/CUDA/PyTorch dependency closure and exact SAM3 Git pin</td>
+          <td>SAM3.1 Object Multiplex or video tracking</td>
+        </tr>
+        <tr>
+          <td>Original <code>sam3.pt</code> revision and checksum verification</td>
+          <td>Migration to Hugging Face Transformers APIs or <code>model.safetensors</code></td>
+        </tr>
+        <tr>
+          <td>Protected host storage and read-only Nuclio mount</td>
+          <td>RF-DETR or crop-interactor deployment</td>
+        </tr>
+        <tr>
+          <td>Focused tests, candidate image build, import probe, and real GPU model initialization</td>
+          <td>Live <code>nuctl deploy</code>, browser smoke testing, commit, merge, or push</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <div class="label">Approval boundary</div>
+      <p>A successful candidate build or GPU probe is not permission to deploy the function. Deployment will be proposed separately with the exact image, function name, command, and rollback path.</p>
+    </div>
+
+    <h2>Options considered</h2>
+    <div class="option-grid">
+      <div class="option-card pick">
+        <span class="tag">Selected</span>
+        <h4>Native SAM3 + local checkpoint</h4>
+        <p>Preserve the tested CVAT adapter and remove runtime authentication and dependency drift.</p>
+        <ul>
+          <li class="pro">Smallest behavioral change</li>
+          <li class="pro">Supports the existing positive/negative point and optional-box contract</li>
+          <li class="pro">Deterministic, offline-capable restarts</li>
+          <li class="con">Requires one managed 3.45 GB host artifact</li>
+        </ul>
+      </div>
+      <div class="option-card">
+        <h4>Transformers packaging</h4>
+        <p>Use the current <code>model.safetensors</code> and Transformers processors from the original model repository.</p>
+        <ul>
+          <li class="pro">Standardized Hugging Face model API</li>
+          <li class="con">Changes the inference adapter and prompt semantics</li>
+          <li class="con">Needs a new compatibility and quality-validation project</li>
+        </ul>
+      </div>
+      <div class="option-card">
+        <h4>SAM3.1 Multiplex</h4>
+        <p>Adopt the newer checkpoint aimed at joint multi-object video tracking.</p>
+        <ul>
+          <li class="pro">Meaningful video-throughput improvements</li>
+          <li class="con">Not a drop-in image-interactor checkpoint</li>
+          <li class="con">No current benefit for this CVAT image-only workflow</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Runtime and artifact contract</h2>
+    <table>
+      <thead><tr><th>Component</th><th>Selected value</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>Nuclio runtime</td><td><code>python:3.12</code></td><td>Matches official SAM3 prerequisites.</td></tr>
+        <tr><td>Base image</td><td><code>nvidia/cuda:12.8.0-cudnn-runtime-ubuntu24.04@sha256:c40d1065…6088f</code></td><td>Locks the selected CUDA/Ubuntu base bytes.</td></tr>
+        <tr><td>Ubuntu archive</td><td><code>20260901T000000Z</code> snapshot</td><td>Prevents later apt resolution from silently changing the runtime.</td></tr>
+        <tr><td>Python graph</td><td>58 exact constraints</td><td>Locks direct and transitive packages, including CUDA wheels and the Nuclio SDK.</td></tr>
+        <tr><td>Post-processing toolchain</td><td><code>gcc</code>, <code>libc6-dev</code>, <code>python3-dev</code></td><td>Allows SAM3's Triton connected-components kernel to retain mask hole/sprinkle cleanup.</td></tr>
+        <tr><td>PyTorch</td><td><code>torch==2.10.0</code> from the CUDA 12.8 index</td><td>Matches the current official installation recipe.</td></tr>
+        <tr><td>Torchvision</td><td><code>torchvision==0.25.0</code></td><td>Version paired with PyTorch 2.10; eliminates resolver drift.</td></tr>
+        <tr><td>SAM3 source</td><td><code>660a5e9e1b8b4c02c0ad97229b88a09a6e4ff5b7</code></td><td>Verified official <code>main</code> revision on 2026-09-01.</td></tr>
+        <tr><td>HF repository revision</td><td><code>3c879f39826c281e95690f02c7821c4de09afae7</code></td><td>Current original SAM3 model revision; immutable download target.</td></tr>
+        <tr><td>Checkpoint</td><td><code>sam3.pt</code>, 3,450,062,241 bytes</td><td>Native builder format used by the existing interactive predictor.</td></tr>
+        <tr><td>Checkpoint SHA-256</td><td><code>9999e2341ceef5e136daa386eecb55cb414446a00ac2b55eb2dfd2f7c3cf8c9e</code></td><td>Published object ID from the official Hugging Face repository.</td></tr>
+        <tr><td>Host storage</td><td><code>/data/cvat/data/models/sam3/sam3.pt</code></td><td>Stable, already ignored runtime-data tree outside any feature worktree.</td></tr>
+        <tr><td>Container path</td><td><code>/opt/nuclio/models/sam3/sam3.pt</code></td><td>Explicit read-only model mount separate from function source.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      The complete observed Python distribution graph is locked in a checked-in constraints file.
+      In particular, the chosen SAM3 revision still imports <code>pkg_resources</code>, so setuptools must remain on
+      a compatible version rather than tracking an unconstrained future release.
+    </p>
+
+    <h2>Credential and checkpoint flow</h2>
+    <pre class="mermaid">
+flowchart LR
+  A[Fine-grained HF token] -->|one-time authenticated download| B[Temporary download file]
+  B --> C{Size and SHA-256 match?}
+  C -->|no| D[Delete partial file and fail]
+  C -->|yes| E[Atomic rename to /data/cvat/data/models/sam3/sam3.pt]
+  E --> F[Read-only bind mount]
+  F --> G[Nuclio SAM3 function]
+  G --> H[Native interactive predictor]
+  A -. never forwarded .-> G
+    </pre>
+    <ul>
+      <li>The token is entered interactively and exists only for the download process.</li>
+      <li>The destination directory is created with restrictive permissions; downloads use a temporary filename.</li>
+      <li>Size and SHA-256 are checked before atomic promotion to <code>sam3.pt</code>.</li>
+      <li>The Nuclio manifest mounts the containing directory read-only and sets <code>SAM3_CHECKPOINT_PATH</code> to the container path.</li>
+      <li>The generic deployment script no longer needs to forward <code>HF_TOKEN</code> for this SAM3 deployment.</li>
+    </ul>
+
+    <h2>Repository changes</h2>
+    <table>
+      <thead><tr><th>File</th><th>Design change</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/nuclio/function-gpu.yaml</code></td>
+          <td>Upgrade runtime/base image, pin packages and SAM3 commit, add the read-only checkpoint mount, and set the container checkpoint path.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/nuclio/model_handler.py</code></td>
+          <td>Require the local checkpoint, reject symlinks, and revalidate its exact size and SHA-256 before importing the model; remove automatic Hugging Face download behavior.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/nuclio/test_function_gpu.py</code></td>
+          <td>Assert the base digest, OS snapshot, complete Python lock, immutable Git revision, read-only mount, compiler toolchain, and absence of a runtime token.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/nuclio/test_model_handler.py</code></td>
+          <td>Test missing, nonexistent, size-mismatched, hash-mismatched, symlinked, and valid checkpoint paths before model construction.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/nuclio/sam3-runtime-constraints.txt</code></td>
+          <td>Record the exact 58-package Python distribution graph verified in the final candidate image.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/deploy_gpu.sh</code></td>
+          <td>Stop forwarding SAM3 Hugging Face/model-version variables globally while preserving unrelated CVAT Redis deployment variables.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/prepare_checkpoint.py</code></td>
+          <td>Use the official Hugging Face Hub client with an interactively entered token to download the pinned revision, verify byte count and SHA-256, fsync file and directory state, then atomically install it without logging the token.</td>
+        </tr>
+        <tr>
+          <td><code>serverless/pytorch/facebookresearch/sam3/test_prepare_checkpoint.py</code></td>
+          <td>Test revision pinning, size/hash rejection, preservation of an existing verified checkpoint, atomic promotion, and secret-free diagnostics using small local fixtures and a substituted downloader.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Error handling</h2>
+    <table>
+      <thead><tr><th>Failure</th><th>Required behavior</th></tr></thead>
+      <tbody>
+        <tr><td>Missing token during one-time download</td><td>Fail before network access; never prompt through logs or command arguments.</td></tr>
+        <tr><td>Denied gated-model access</td><td>Report authentication/access failure without echoing credentials.</td></tr>
+        <tr><td>Interrupted or corrupt download</td><td>Keep only the temporary file; do not replace an existing verified checkpoint.</td></tr>
+        <tr><td>Missing mounted checkpoint</td><td>Fail function initialization with the expected host and container paths.</td></tr>
+        <tr><td>Checkpoint checksum mismatch</td><td>Refuse build/probe/deploy and report expected versus observed checksum.</td></tr>
+        <tr><td>No CUDA device or model-load failure</td><td>Fail explicitly; no CPU fallback and no alternate model.</td></tr>
+        <tr><td>Nuclio client/dashboard mismatch</td><td>Refuse live deployment until host <code>nuctl</code> is 1.16.3.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Verification strategy</h2>
+    <ol>
+      <li><strong>Red tests:</strong> add manifest and model-handler tests for the approved behavior and confirm they fail against the current implementation.</li>
+      <li><strong>Focused green tests:</strong> run the SAM3 Nuclio pytest directory alone, because combining it with similarly named serverless suites causes collection collisions.</li>
+      <li><strong>Static checks:</strong> parse YAML, compile Python, run shell syntax checks, and scan changed files for secrets or unpinned SAM3 URLs.</li>
+      <li><strong>Checkpoint verification:</strong> confirm exact byte size and SHA-256 before any runtime uses the file.</li>
+      <li><strong>Candidate image build:</strong> use matching Nuclio 1.16.3 tooling to build, but not deploy, the function image.</li>
+      <li><strong>Container import probe:</strong> verify Python 3.12, CUDA-enabled PyTorch, torchvision, and the pinned SAM3 package import successfully.</li>
+      <li><strong>Real GPU inference:</strong> initialize the actual interactive predictor on an RTX 6000 Ada, then execute point-only and box-only masks while asserting that Triton post-processing remains active.</li>
+      <li><strong>Final diff review:</strong> confirm only SAM3 hardening artifacts changed and the live Nuclio inventory remains untouched.</li>
+    </ol>
+    <div class="callout info">
+      <div class="label">Success criterion for this slice</div>
+      <p>The locked candidate image initializes the real SAM3 interactive predictor and completes point-only and box-only GPU inference with the revalidated local checkpoint, while no Hugging Face token is present in the image or runtime configuration. The function is still not deployed.</p>
+    </div>
+
+    <h2>Deployment and rollback boundary</h2>
+    <p>
+      After the implementation slice passes, a separate deployment proposal will name the candidate image and exact
+      SAM3-only <code>nuctl deploy</code> command. Before deployment, the host client will be aligned to Nuclio
+      1.16.3 and the existing empty function inventory will be rechecked. A failed deployment can remove only the
+      named SAM3 function; it does not require rolling back CVAT application containers or touching RF-DETR functions.
+    </p>
+
+    <details>
+      <summary>Why the original checkpoint is selected instead of SAM3.1</summary>
+      <p>
+        SAM3.1 Object Multiplex is designed around efficient joint multi-object video tracking. The existing CVAT
+        integration is an image-only native interactor that calls <code>SAM3InteractiveImagePredictor</code> with
+        positive points, negative points, and an optional box. The original <code>sam3.pt</code> is the checkpoint
+        used by that native builder path. Adopting SAM3.1 would be a new feature and compatibility project, not a
+        runtime-hardening substitution.
+      </p>
+    </details>
+
+    <details>
+      <summary>Authoritative upstream references</summary>
+      <ul>
+        <li><a href="https://github.com/facebookresearch/sam3">Official SAM3 source and installation requirements</a></li>
+        <li><a href="https://github.com/facebookresearch/sam3/blob/main/RELEASE_SAM3p1.md">Official SAM3.1 release notes</a></li>
+        <li><a href="https://huggingface.co/facebook/sam3/tree/main">Original SAM3 Hugging Face repository</a></li>
+        <li><a href="https://huggingface.co/facebook/sam3.1">SAM3.1 checkpoint repository</a></li>
+      </ul>
+    </details>
+
+    <h2>Next steps</h2>
+    <ol>
+      <li>Review the final uncommitted evidence and independent code-review outcome.</li>
+      <li>Authorize or decline a commit as a separate action.</li>
+      <li>If desired, separately align the host <code>nuctl</code> client from 1.15.10 to 1.16.3.</li>
+      <li>Authorize or decline the exact SAM3-only Nuclio deployment as a separate action.</li>
+      <li>After deployment, run authenticated browser point/box smoke tests before declaring end-to-end readiness.</li>
+    </ol>
+  </main>
+</div>
+
+<footer>Generated for the CVAT personal fork · plan-as-html · 2026-09-01</footer>
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script type="text/plain" id="prompt-seed">
+Re: the approved CVAT SAM3 runtime hardening design (pinned native runtime, verified local sam3.pt, no runtime HF token, and stop before deployment).
+I've read it. I want to change the following:
+-
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js" integrity="sha512-5TKaYvhenABhlGIKSxAWLFJBZCSQw7HTV7aL1dJcBokM/+3PNtfgJFlv8E6Us/B1VMlQ4u8sPzjudL9TEQ06ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>hljs.highlightAll();</script>
+<script>
+  (function () {
+    const content = document.querySelector(".content");
+    const list = document.getElementById("toc-list");
+    const heads = content.querySelectorAll("h2, h3");
+    const slug = (t) => t.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").slice(0, 60);
+    const seen = {};
+    heads.forEach((h) => {
+      let id = h.id || slug(h.textContent);
+      if (seen[id]) id = id + "-" + (++seen[id]); else seen[id] = 1;
+      h.id = id;
+      const a = document.createElement("a");
+      a.href = "#" + id;
+      a.textContent = h.textContent;
+      a.className = h.tagName === "H3" ? "h3" : "";
+      list.appendChild(a);
+    });
+    const links = Array.from(list.querySelectorAll("a"));
+    const byId = Object.fromEntries(links.map((a) => [a.getAttribute("href").slice(1), a]));
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          links.forEach((l) => l.classList.remove("active"));
+          (byId[e.target.id] || {}).classList?.add("active");
+        }
+      });
+    }, { rootMargin: "-72px 0px -70% 0px" });
+    heads.forEach((h) => obs.observe(h));
+    async function copyText(value) {
+      try { await navigator.clipboard.writeText(value); return true; }
+      catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = value; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta); return ok;
+      }
+    }
+    const toast = document.getElementById("toast");
+    document.getElementById("copyPromptBtn").addEventListener("click", async () => {
+      const seed = (document.getElementById("prompt-seed").textContent || "").trim();
+      const ok = await copyText(seed);
+      toast.textContent = ok ? "Copied — paste it back to revise" : "Copy failed — select the text manually";
+      toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 2200);
+    });
+  })();
+</script>
+</body>
+</html>
