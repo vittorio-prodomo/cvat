@@ -55,6 +55,12 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
     }), shallowEqual);
 
     const isBulkMode = selectedIds.length > 1;
+    const isExportDatasetDisabled = isBulkMode &&
+        new Set(
+            currentProjects
+                .filter((project) => selectedIds.includes(project.id))
+                .map((project) => project.dimension),
+        ).size > 1;
     const {
         dropdownOpen,
         editField,
@@ -101,6 +107,7 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
             dispatch(makeBulkOperationAsync(
                 projectsToUpdate,
                 async (project) => {
+                    // eslint-disable-next-line no-param-reassign
                     project.assignee = assignee;
                     await dispatch(updateProjectAsync(project));
                 },
@@ -124,8 +131,9 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
             dispatch(makeBulkOperationAsync(
                 projectsToUpdate,
                 async (project) => {
+                    // eslint-disable-next-line no-param-reassign
                     project.organizationId = newOrganization?.id ?? null;
-                    await dispatch(updateProjectAsync(project, ResourceUpdateTypes.UPDATE_ORGANIZATION));
+                    await dispatch(updateProjectAsync(project, {}, ResourceUpdateTypes.UPDATE_ORGANIZATION));
                 },
                 (project, idx, total) => `Updating organization for project #${project.id} (${idx + 1}/${total})`,
             )).then((processedCount: number) => {
@@ -215,6 +223,7 @@ function ProjectActionsComponent(props: Readonly<Props>): JSX.Element {
             onBackupProject,
             onDeleteProject,
             selectedIds,
+            isExportDatasetDisabled,
         }, props);
     }
 

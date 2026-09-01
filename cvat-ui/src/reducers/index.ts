@@ -4,20 +4,51 @@
 // SPDX-License-Identifier: MIT
 
 import { Canvas3d } from 'cvat-canvas3d/src/typescript/canvas3d';
-import { Canvas, RectDrawingMethod, CuboidDrawingMethod } from 'cvat-canvas-wrapper';
+import {
+    Canvas, RectDrawingMethod, CuboidDrawingMethod, RenderData,
+} from 'cvat-canvas-wrapper';
 import { OrientationVisibility } from 'cvat-canvas3d-wrapper';
 import {
     Webhook, MLModel, Organization, Job, Task, Project, Label, User,
     QualityConflict, FramesMetaData, RQStatus, Event, Invitation, SerializedAPISchema,
     Request, JobValidationLayout, QualitySettings, TaskValidationLayout, ObjectState,
-    ConsensusSettings, AboutData, ShapeType, ObjectType, ApiToken,
-    Membership, AnnotationFormats, CloudStorage,
+    ConsensusSettings, AboutData, ShapeType, ObjectType, ApiToken, AudioIntervalState,
+    Membership, AnnotationFormats, CloudStorage, UserGrowthData,
 } from 'cvat-core-wrapper';
 
-import { IntelligentScissors } from 'utils/opencv-wrapper/intelligent-scissors';
+import type { IntelligentScissors, OpenCVTracker } from 'utils/opencv-wrapper/opencv-wrapper';
 import { KeyMap, KeyMapItem } from 'utils/mousetrap-react';
-import { OpenCVTracker } from 'utils/opencv-wrapper/opencv-interfaces';
 import { ImageFilter } from 'utils/image-processing';
+
+export interface AudioState {
+    player: {
+        playing: boolean;
+        currentTime: number;
+        duration: number;
+        playbackRate: number;
+        zoom: number;
+        volume: number;
+        loop: boolean;
+        fitIntervalRequest: { clientID: number } | null;
+        intervals: AudioIntervalState[];
+        activeIntervalID: number | null;
+        hoveredIntervalID: number | null;
+        interactingIntervalID: number | null;
+        contextMenu: {
+            top: number;
+            left: number;
+            clientID: number | null;
+        };
+        audioDataToken: string | null;
+        audioLoading: boolean;
+        audioError: string | null;
+        waveformReady: boolean;
+        activeLabelId: number | null;
+        audioLoadRequest: object | null;
+        seekRequest: { time: number } | null;
+        playIntervalOnceRequest: { intervalID: number } | null;
+    };
+}
 
 export interface AuthState {
     initialized: boolean;
@@ -30,6 +61,12 @@ export interface AuthState {
         current: ApiToken[];
         count: number;
     };
+}
+
+export interface GrowthState {
+    data: UserGrowthData | null;
+    fetching: boolean;
+    initialized: boolean;
 }
 
 export interface ChangePasswordData {
@@ -309,7 +346,7 @@ export type PluginsList = {
 export type CallbackReturnType = Promise<undefined | { preventJobStatusChange: boolean }>;
 
 export interface PluginComponent {
-    component: any;
+    component: any; // TODO: research correct plugin component type
     data: {
         weight: number;
         shouldBeRendered: (props?: object, state?: object) => boolean;
@@ -336,6 +373,11 @@ export interface PluginsState {
         };
     };
     overridableComponents: {
+        app: {
+            serverUnavailable: ((props: {
+                details: string | null;
+            }) => JSX.Element)[];
+        };
         annotationPage: {
             header: {
                 saveAnnotationButton: (() => JSX.Element)[];
@@ -343,7 +385,7 @@ export interface PluginsState {
         };
         qualityControlPage: {
             task: {
-                overviewTab: ((props: {
+                requirementsTab: ((props: {
                     instance: Task;
                     qualitySettings: {
                         settings: QualitySettings | null;
@@ -363,7 +405,7 @@ export interface PluginsState {
                     }) => JSX.Element)[];
             }
             project : {
-                overviewTab: ((props: {
+                requirementsTab: ((props: {
                     instance: Project;
                     qualitySettings: {
                         settings: QualitySettings | null;
@@ -382,6 +424,11 @@ export interface PluginsState {
         };
     },
     components: {
+        qualityControlPage: {
+            tabs: {
+                items: PluginComponent[];
+            };
+        };
         header: {
             userMenu: {
                 items: PluginComponent[];
@@ -398,6 +445,20 @@ export interface PluginsState {
                 items: PluginComponent[];
             };
         }
+        taskPage: {
+            details: {
+                topBar: {
+                    extras: PluginComponent[];
+                };
+            };
+        };
+        projectPage: {
+            details: {
+                topBar: {
+                    extras: PluginComponent[];
+                };
+            };
+        };
         modelsPage: {
             topBar: {
                 items: PluginComponent[];
@@ -770,23 +831,24 @@ export enum ActiveControl {
     DRAW_MASK = 'draw_mask',
     DRAW_CUBOID = 'draw_cuboid',
     DRAW_SKELETON = 'draw_skeleton',
-    MERGE = 'merge',
     GROUP = 'group',
+    MERGE = 'merge',
     JOIN = 'join',
     SPLIT = 'split',
     SLICE = 'slice',
     EDIT = 'edit',
     OPEN_ISSUE = 'open_issue',
     AI_TOOLS = 'ai_tools',
-    PHOTO_CONTEXT = 'PHOTO_CONTEXT',
     OPENCV_TOOLS = 'opencv_tools',
+    AUDIO_REGION_CREATE = 'audio_region_create',
+    AUDIO_REGION_RECORD = 'audio_region_record',
 }
 
 export enum StatesOrdering {
     ID_DESCENT = 'ID - descent',
     ID_ASCENT = 'ID - ascent',
     UPDATED = 'Updated time',
-    Z_ORDER = 'Z Order',
+    LAYER = 'Layer',
     LABEL_NAME = 'Label name',
 }
 
@@ -890,6 +952,7 @@ export interface AnnotationState {
         activeLabelID: number | null;
         activeObjectType: ObjectType;
         activeInitialState?: any;
+        activeSimplifyPoly?: boolean;
     };
     editing: EditingState;
     annotations: {
@@ -901,11 +964,12 @@ export interface AnnotationState {
         collapsedAll: boolean;
         states: any[];
         filters: object[];
+        renderData: RenderData;
         resetGroupFlag: boolean;
         initialized: boolean;
         history: {
-            undo: [string, number][];
-            redo: [string, number][];
+            undo: [string, number | null][];
+            redo: [string, number | null][];
         };
         saving: {
             forceExit: boolean;
@@ -915,6 +979,7 @@ export interface AnnotationState {
             min: number;
             max: number;
             cur: number;
+            hiddenByFrame: Map<number, Set<number>>;
         };
     };
     remove: {
@@ -932,6 +997,10 @@ export interface AnnotationState {
     propagate: {
         visible: boolean;
     };
+    simplify: {
+        objectState: ObjectState | null;
+        originalPoints: number[] | null;
+    };
     colors: any[];
     filtersPanelVisible: boolean;
     sidebarCollapsed: boolean;
@@ -946,6 +1015,7 @@ export enum Workspace {
     SINGLE_SHAPE = 'Single shape',
     TAGS = 'Tag annotation',
     REVIEW = 'Review',
+    AUDIO = 'Audio annotation',
 }
 
 export enum GridColor {
@@ -1159,6 +1229,7 @@ export interface NavigationState {
 
 export interface CombinedState {
     auth: AuthState;
+    growth: GrowthState;
     projects: ProjectsState;
     jobs: JobsState;
     tasks: TasksState;
@@ -1169,6 +1240,7 @@ export interface CombinedState {
     models: ModelsState;
     notifications: NotificationsState;
     annotation: AnnotationState;
+    audio: AudioState;
     settings: SettingsState;
     shortcuts: ShortcutsState;
     review: ReviewState;

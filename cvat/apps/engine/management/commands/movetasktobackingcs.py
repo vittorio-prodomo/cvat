@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: MIT
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from cvat.apps.engine.models import CloudStorage, Task
@@ -21,12 +22,17 @@ class Command(BaseCommand):
         parser.add_argument(
             "backing_cs_id",
             type=int,
-            help="ID of the backing cloud storage to move data to",
+            help="ID of the backing cloud storage to move data to (default: %(default)s)",
+            nargs="?",
+            default=settings.DEFAULT_BACKING_CS_ID,
         )
 
     def handle(self, *args, **options):
         task_ids: list[int] = options["task_ids"]
         backing_cs_id: int = options["backing_cs_id"]
+
+        if backing_cs_id is None:
+            raise CommandError("No cloud storage ID was specified, and no default is configured")
 
         try:
             backing_cs = CloudStorage.objects.get(id=backing_cs_id)
@@ -52,8 +58,10 @@ class Command(BaseCommand):
                 f" (#{data.local_storage_backing_cs_id})"
             )
 
-        if not data.supports_backing_cs():
-            raise CommandError(f"Task #{task.id} does not support backing cloud storage")
+        if not data.supports_backing_cs(backing_cs):
+            raise CommandError(
+                f"Task #{task.id} does not support backing cloud storage #{backing_cs.id}"
+            )
 
         data.move_to_backing_cs(backing_cs)
         return True

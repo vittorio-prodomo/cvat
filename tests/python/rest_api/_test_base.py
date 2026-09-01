@@ -3,11 +3,11 @@ import math
 import os
 from collections.abc import Mapping, Sequence
 from functools import partial
-from pathlib import Path
 from typing import IO
 
 import numpy as np
 import pytest
+from attrs.converters import to_bool
 from cvat_sdk.api_client import models
 from PIL import Image
 from pytest_cases import fixture, fixture_ref, parametrize
@@ -19,10 +19,8 @@ from shared.tasks.enums import SourceDataType
 from shared.tasks.interface import ITaskSpec
 from shared.tasks.types import ImagesTaskSpec, VideoTaskSpec
 from shared.tasks.utils import parse_frame_step
-from shared.utils.config import make_api_client
+from shared.utils.config import SHARE_DIR, make_api_client
 from shared.utils.helpers import generate_image_files, generate_video_file
-
-SHARE_DIR = Path(__file__).parents[2] / "mounted_file_share"
 
 
 def read_share_file(path: str) -> io.BytesIO:
@@ -248,12 +246,8 @@ class TestTasksBase:
             request, start_frame=start_frame, step=step
         )
 
-    def _images_task_with_honeypots_and_changed_real_frames_base(
-        self, request: pytest.FixtureRequest, **kwargs
-    ):
-        task_spec, task_id = self._image_task_with_honeypots_and_segments_base(
-            request, start_frame=2, step=3, **kwargs
-        )
+    def _rotate_all_task_honeypots(self, task_spec: ITaskSpec, task_id: int) -> None:
+        "Updates the passed task and task spec inplace"
 
         with make_api_client(self._USERNAME) as api_client:
             validation_layout, _ = api_client.tasks_api.retrieve_validation_layout(task_id)
@@ -279,7 +273,16 @@ class TestTasksBase:
             _get_frame = task_spec._get_frame
             task_spec._get_frame = lambda i: _get_frame(frame_map.get(i, i))
 
-            return task_spec, task_id
+    def _images_task_with_honeypots_and_changed_real_frames_base(
+        self, request: pytest.FixtureRequest, **kwargs
+    ):
+        task_spec, task_id = self._image_task_with_honeypots_and_segments_base(
+            request, start_frame=2, step=3, **kwargs
+        )
+
+        self._rotate_all_task_honeypots(task_spec=task_spec, task_id=task_id)
+
+        return task_spec, task_id
 
     @fixture(scope="class")
     @parametrize("random_seed", [1, 2, 5])
@@ -392,6 +395,44 @@ class TestTasksBase:
     ) -> tuple[ITaskSpec, int]:
         return self._uploaded_images_task_with_gt_and_segments_base(
             request=request, job_replication=2
+        )
+
+    @fixture(scope="class")
+    @parametrize(
+        "cloud_storage_id",
+        [
+            pytest.param(
+                1,
+                marks=[
+                    pytest.mark.with_external_services,
+                    pytest.mark.timeout(60),
+                    pytest.mark.xfail(
+                        to_bool(os.getenv("CVAT_ALLOW_STATIC_CACHE", False)),
+                        reason="Creating a task from a cloud .bin file with static cache doesn't work at the moment",
+                    ),
+                ],
+            )
+        ],
+    )
+    def fxt_cloud_bin_pointcloud_task(
+        self, request: pytest.FixtureRequest, cloud_storages, cloud_storage_id: int
+    ) -> tuple[ITaskSpec, int]:
+        cloud_storage = cloud_storages[cloud_storage_id]
+        s3_client = s3.make_client(bucket=cloud_storage["resource"])
+
+        server_files = ["bin_pointcloud/000002.bin"]
+
+        bin_files = []
+        for filename in server_files:
+            bin_file = io.BytesIO(s3_client.download_fileobj(filename))
+            bin_file.name = filename
+            bin_files.append(bin_file)
+
+        return self._image_task_fxt_base(
+            request,
+            image_files=bin_files,
+            server_files=server_files,
+            cloud_storage_id=cloud_storage_id,
         )
 
     @fixture(scope="class")
@@ -632,6 +673,7 @@ class TestTasksBase:
         start_frame: int | None = None,
         stop_frame: int | None = None,
         step: int | None = None,
+        use_cache: bool | None = None,
         video_file: IO[bytes] | None = None,
         chapters: Sequence[dict] | None = None,
     ) -> tuple[VideoTaskSpec, int]:
@@ -679,6 +721,9 @@ class TestTasksBase:
 
         if step is not None:
             data_params["frame_filter"] = f"step={step}"
+
+        if use_cache is not None:
+            data_params["use_cache"] = use_cache
 
         def get_video_file() -> io.BytesIO:
             return io.BytesIO(video_data)
@@ -734,6 +779,24 @@ class TestTasksBase:
             step=step,
         )
 
+    @fixture(scope="class")
+    @parametrize(
+        "cloud_storage_id",
+        [pytest.param(5, marks=[pytest.mark.with_external_services])],
+    )
+    def fxt_backing_cs_video_task(
+        self,
+        request: pytest.FixtureRequest,
+        cloud_storage_id: int,
+    ) -> tuple[ITaskSpec, int]:
+        spec, task_id = self._uploaded_video_task_fxt_base(request=request, use_cache=True)
+
+        container_exec_cvat(
+            request, ["./manage.py", "movetasktobackingcs", str(task_id), str(cloud_storage_id)]
+        )
+
+        return spec, task_id
+
     def _compute_annotation_segment_params(self, task_spec: ITaskSpec) -> list[tuple[int, int]]:
         segment_params = []
         frame_step = task_spec.frame_step
@@ -776,15 +839,15 @@ class TestTasksBase:
         expected: Image.Image, actual: Image.Image, *, must_be_identical: bool = True
     ):
         expected_pixels = np.array(expected)
-        chunk_frame_pixels = np.array(actual)
-        assert expected_pixels.shape == chunk_frame_pixels.shape
+        actual_pixels = np.array(actual)
+        assert expected_pixels.shape == actual_pixels.shape
 
         if not must_be_identical:
             # video chunks can have slightly changed colors, due to codec specifics
             # compressed images can also be distorted
-            assert np.allclose(chunk_frame_pixels, expected_pixels, atol=3)
+            assert np.allclose(actual_pixels, expected_pixels, atol=3)
         else:
-            assert np.array_equal(chunk_frame_pixels, expected_pixels)
+            assert np.array_equal(actual_pixels, expected_pixels)
 
     def _get_job_abs_frame_set(self, job_meta: models.DataMetaRead) -> Sequence[int]:
         if job_meta.included_frames:
@@ -814,6 +877,7 @@ class TestTasksBase:
     ]
 
     _tests_with_cloud_storage_cases = [
+        fixture_ref("fxt_cloud_bin_pointcloud_task"),
         fixture_ref("fxt_cloud_images_task_with_honeypots_and_changed_real_frames"),
         fixture_ref("fxt_cloud_images_task_with_related_images"),
     ]
@@ -832,6 +896,7 @@ class TestTasksBase:
     ]
 
     _3d_task_cases = [
+        fixture_ref("fxt_cloud_bin_pointcloud_task"),
         fixture_ref("fxt_cloud_pcd_task_with_related_images"),
         fixture_ref("fxt_share_pcd_task_with_related_images"),
     ]
@@ -848,6 +913,7 @@ class TestTasksBase:
             fixture_ref("fxt_uploaded_video_task_without_manifest"),
             fixture_ref("fxt_uploaded_video_task_with_segments"),
             fixture_ref("fxt_uploaded_video_task_with_segments_start_stop_step"),
+            fixture_ref("fxt_backing_cs_video_task"),
         ]
         + _tasks_with_honeypots_cases
         + _tasks_with_simple_gt_job_cases

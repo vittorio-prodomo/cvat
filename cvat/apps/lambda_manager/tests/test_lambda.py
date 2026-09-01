@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: MIT
 
+import base64
+import io
 import json
 import os
 from collections import Counter
@@ -11,18 +13,20 @@ from itertools import groupby
 from unittest import mock, skip
 
 import requests
-from django.contrib.auth.models import Group, User
 from django.core.signing import TimestampSigner
 from django.http import HttpResponseNotFound, HttpResponseServerError
+from PIL import Image
 from rest_framework import status
 
 from cvat.apps.engine.tests.utils import (
     ApiTestBase,
     ForceLogin,
+    check_annotation_response,
     filter_dict,
     generate_image_file,
     get_paginated_collection,
 )
+from cvat.apps.iam.models import User
 
 LAMBDA_ROOT_PATH = "/api/lambda"
 LAMBDA_FUNCTIONS_PATH = f"{LAMBDA_ROOT_PATH}/functions"
@@ -173,34 +177,32 @@ class _LambdaTestCaseBase(ApiTestBase):
 
     @classmethod
     def _create_db_users(cls):
-        group_admin, _ = Group.objects.get_or_create(name="admin")
-        group_user, _ = Group.objects.get_or_create(name="user")
-
-        user_admin = User.objects.create_superuser(username="admin", email="", password="admin")
-        user_admin.groups.add(group_admin)
-        user_dummy = User.objects.create_user(
+        cls.admin = User.objects.create_superuser(username="admin", email="", password="admin")
+        cls.owner = User.objects.create_user(
+            username="owner", password="owner", email="owner@example.com"
+        )
+        cls.user = User.objects.create_user(
             username="user", password="user", email="user@example.com"
         )
-        user_dummy.groups.add(group_user)
+        cls.job_assignee = User.objects.create_user(
+            username="job-assignee", password="job-assignee", email="job-assignee@example.com"
+        )
 
-        cls.admin = user_admin
-        cls.user = user_dummy
-
-    def _create_task(self, task_spec, data, *, owner=None, org_id=None):
+    def _create_task(self, task_spec, data, *, owner, org_id=None):
         with ForceLogin(owner or self.admin, self.client):
             response = self.client.post(
                 "/api/tasks",
+                query_params={"org_id": org_id} if org_id is not None else None,
                 data=task_spec,
                 format="json",
-                QUERY_STRING=f"org_id={org_id}" if org_id is not None else None,
             )
             assert response.status_code == status.HTTP_201_CREATED, response.status_code
             tid = response.data["id"]
 
             response = self.client.post(
-                "/api/tasks/%s/data" % tid,
+                f"/api/tasks/{tid}/data",
+                query_params={"org_id": org_id} if org_id is not None else None,
                 data=data,
-                QUERY_STRING=f"org_id={org_id}" if org_id is not None else None,
             )
             assert response.status_code == status.HTTP_202_ACCEPTED, response.status_code
             rq_id = response.json()["rq_id"]
@@ -210,17 +212,15 @@ class _LambdaTestCaseBase(ApiTestBase):
             assert response.json()["status"] == "finished", response.json().get("status")
 
             response = self.client.get(
-                "/api/tasks/%s" % tid,
-                QUERY_STRING=f"org_id={org_id}" if org_id is not None else None,
+                f"/api/tasks/{tid}",
+                query_params={"org_id": org_id} if org_id is not None else None,
             )
             task = response.data
 
         return task
 
     def _generate_task_images(self, count):  # pylint: disable=no-self-use
-        images = {
-            "client_files[%d]" % i: generate_image_file("image_%d.jpg" % i) for i in range(count)
-        }
+        images = {f"client_files[{i}]": generate_image_file(f"image_{i}.jpg") for i in range(count)}
         images["image_quality"] = 75
         return images
 
@@ -244,6 +244,20 @@ class _LambdaTestCaseBase(ApiTestBase):
         response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{request_id}", user or self.admin)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+    def _wait_lambda_request(self, request_id: str, user: User | None = None) -> str:
+        request_status = "started"
+        while request_status != "finished" and request_status != "failed":
+            response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{request_id}", user or self.admin)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            request_status = response.json().get("status")
+
+        return request_status
+
+    def _get_payload_image_size(self, payload: dict) -> tuple[int, int]:
+        image_data = base64.b64decode(payload["image"])
+        with Image.open(io.BytesIO(image_data)) as image:
+            return image.size
+
 
 class LambdaTestCases(_LambdaTestCaseBase):
     def setUp(self):
@@ -251,10 +265,29 @@ class LambdaTestCases(_LambdaTestCaseBase):
 
         images_main_task = self._generate_task_images(3)
         images_assigneed_to_user_task = self._generate_task_images(3)
-        self.main_task = self._create_task(tasks["main"], images_main_task)
+        self.main_task = self._create_task(tasks["main"], images_main_task, owner=self.owner)
         self.assigneed_to_user_task = self._create_task(
-            tasks["assigneed_to_user"], images_assigneed_to_user_task
+            tasks["assigneed_to_user"], images_assigneed_to_user_task, owner=self.owner
         )
+        self._patch_request(
+            f"/api/tasks/{self.assigneed_to_user_task['id']}",
+            self.admin,
+            data={"assignee_id": self.user.id},
+        )
+
+        response = self._get_request(
+            f"/api/jobs",
+            query_params={"task_id": self.assigneed_to_user_task["id"]},
+            user=self.admin,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assigned_to_user_job_id = response.data["results"][0]["id"]
+        response = self._patch_request(
+            f"/api/jobs/{self.assigned_to_user_job_id}",
+            self.admin,
+            data={"assignee": self.job_assignee.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def _create_interactor_mapping_task(self):
         task_spec = deepcopy(tasks["main"])
@@ -263,7 +296,7 @@ class LambdaTestCases(_LambdaTestCaseBase):
             {"name": "bicycle", "type": "mask"},
             {"name": "car", "type": "mask"},
         ]
-        return self._create_task(task_spec, self._generate_task_images(1))
+        return self._create_task(task_spec, self._generate_task_images(1), owner=self.owner)
 
     def test_api_v2_lambda_functions_list(self):
         response = self._get_request(LAMBDA_FUNCTIONS_PATH, self.admin)
@@ -366,7 +399,7 @@ class LambdaTestCases(_LambdaTestCaseBase):
             {"name": "(A13) danno_urto", "type": "mask"},
             {"name": "(C1) difetti_esecuzione", "type": "mask"},
         ]
-        task = self._create_task(task_spec, self._generate_task_images(1))
+        task = self._create_task(task_spec, self._generate_task_images(1), owner=self.owner)
 
         def capturing_invoke(func, payload):
             captured_payload.update(payload)
@@ -442,17 +475,27 @@ class LambdaTestCases(_LambdaTestCaseBase):
                 response = self._get_request(f"{LAMBDA_FUNCTIONS_PATH}/{id_func}", self.admin)
                 self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @skip("Fail: add mock")
     def test_api_v2_lambda_requests_list(self):
+        request_ids = {}
+        for name, task in (
+            ("main", self.main_task),
+            ("assigned", self.assigneed_to_user_task),
+        ):
+            response = self._post_request(
+                LAMBDA_REQUESTS_PATH,
+                self.admin,
+                data={"function": id_function_detector, "task": task["id"], "mapping": {}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            request_ids[name] = response.data["id"]
+
         response = self._get_request(LAMBDA_REQUESTS_PATH, self.admin)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        for key in expected_keys_in_response_requests:
-            self.assertIn(key, response.data[0])
+        self.assertEqual({item["id"] for item in response.data}, set(request_ids.values()))
 
         response = self._get_request(LAMBDA_REQUESTS_PATH, self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        for key in expected_keys_in_response_requests:
-            self.assertIn(key, response.data[0])
+        self.assertEqual({item["id"] for item in response.data}, {request_ids["assigned"]})
 
         response = self._get_request(LAMBDA_REQUESTS_PATH, None)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -490,12 +533,47 @@ class LambdaTestCases(_LambdaTestCaseBase):
             self.assertIn(key, response.data)
 
         response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", self.user)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        for key in expected_keys_in_response_requests:
-            self.assertIn(key, response.data)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", None)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        response = self._post_request(
+            LAMBDA_REQUESTS_PATH,
+            self.admin,
+            data={**data_main_task, "task": self.assigneed_to_user_task["id"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        id_request = response.data["id"]
+
+        for user, expected_status in (
+            (self.admin, status.HTTP_200_OK),
+            (self.user, status.HTTP_200_OK),
+            (self.job_assignee, status.HTTP_403_FORBIDDEN),
+            (None, status.HTTP_401_UNAUTHORIZED),
+        ):
+            with self.subTest(user=user):
+                response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", user)
+                self.assertEqual(response.status_code, expected_status)
+
+        response = self._post_request(
+            LAMBDA_REQUESTS_PATH,
+            self.admin,
+            data={
+                **data_main_task,
+                "task": self.assigneed_to_user_task["id"],
+                "job": self.assigned_to_user_job_id,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        id_request = response.data["id"]
+
+        for user, expected_status in (
+            (self.admin, status.HTTP_200_OK),
+            (self.user, status.HTTP_200_OK),
+            (self.job_assignee, status.HTTP_200_OK),
+            (None, status.HTTP_401_UNAUTHORIZED),
+        ):
+            with self.subTest(user=user):
+                response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", user)
+                self.assertEqual(response.status_code, expected_status)
 
     def test_api_v2_lambda_requests_read_wrong_id(self):
         id_request = "cf343b95-afeb-475e-ab53-8d7e64991d30-wrong-id"
@@ -512,29 +590,43 @@ class LambdaTestCases(_LambdaTestCaseBase):
     def test_api_v2_lambda_requests_delete_finished_request(self):
         data = {
             "function": id_function_detector,
-            "task": self.main_task["id"],
+            "task": self.assigneed_to_user_task["id"],
             "cleanup": True,
             "mapping": {
                 "car": {"name": "car"},
             },
         }
-        response = self._post_request(LAMBDA_REQUESTS_PATH, self.admin, data=data)
+        response = self._post_request(LAMBDA_REQUESTS_PATH, self.user, data=data)
         id_request = response.data["id"]
 
-        response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", None)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        for user, expected_status in (
+            (None, status.HTTP_401_UNAUTHORIZED),
+            (self.owner, status.HTTP_403_FORBIDDEN),
+            (self.job_assignee, status.HTTP_403_FORBIDDEN),
+            (self.user, status.HTTP_204_NO_CONTENT),
+            (self.user, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(user=user):
+                response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", user)
+                self.assertEqual(response.status_code, expected_status)
 
-        response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", self.admin)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", self.admin)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-        response = self._post_request(LAMBDA_REQUESTS_PATH, self.admin, data=data)
+        response = self._post_request(
+            LAMBDA_REQUESTS_PATH,
+            self.job_assignee,
+            data={**data, "job": self.assigned_to_user_job_id},
+        )
         id_request = response.data["id"]
-        response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", self.user)
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        response = self._get_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", self.user)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        for user, expected_status in (
+            (None, status.HTTP_401_UNAUTHORIZED),
+            (self.owner, status.HTTP_403_FORBIDDEN),
+            (self.user, status.HTTP_403_FORBIDDEN),
+            (self.job_assignee, status.HTTP_204_NO_CONTENT),
+            (self.job_assignee, status.HTTP_404_NOT_FOUND),
+        ):
+            with self.subTest(user=user):
+                response = self._delete_request(f"{LAMBDA_REQUESTS_PATH}/{id_request}", user)
+                self.assertEqual(response.status_code, expected_status)
 
     @skip("Fail: add mock")
     def test_api_v2_lambda_requests_delete_not_finished_request(self):
@@ -740,6 +832,17 @@ class LambdaTestCases(_LambdaTestCaseBase):
             response = self._post_request(LAMBDA_REQUESTS_PATH, self.admin, data=data)
             self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def test_api_v2_lambda_requests_create_mismatched_task_job_ids(self):
+        data = {
+            "function": id_function_detector,
+            "task": self.main_task["id"],
+            "job": self.assigned_to_user_job_id,
+            "mapping": {},
+        }
+        response = self._post_request(LAMBDA_REQUESTS_PATH, self.admin, data=data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(b"Job task ID does not match task ID", response.content)
+
     def test_api_v2_lambda_functions_create_detector(self):
         data_main_task = {
             "task": self.main_task["id"],
@@ -805,6 +908,131 @@ class LambdaTestCases(_LambdaTestCaseBase):
             self.assertEqual(captured_payload.get("postprocess_type"), "NMS")
             self.assertAlmostEqual(captured_payload.get("overlap_ratio"), 0.3)
             self.assertTrue(captured_payload.get("full_image_pred"))
+    def test_api_v2_lambda_functions_create_detector_with_roi(self):
+        roi = [11, 13, 31, 43]
+
+        def invoke_detector_with_roi(func, payload):
+            self.assertEqual(func.id, id_function_detector)
+            self.assertEqual(self._get_payload_image_size(payload), (20, 30))
+            return [
+                {
+                    "confidence": "0.9959098",
+                    "label": "car",
+                    "points": [1, 2, 5, 6],
+                    "type": "rectangle",
+                },
+            ]
+
+        data = {
+            "task": self.main_task["id"],
+            "frame": 0,
+            "mapping": {
+                "car": {"name": "car"},
+            },
+            "roi": roi,
+        }
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=invoke_detector_with_roi,
+        ):
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}", self.admin, data=data
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["shapes"][0]["points"], [12.0, 15.0, 16.0, 19.0])
+
+    def test_api_v2_lambda_requests_create_detector_with_roi(self):
+        roi = [10, 20, 30, 50]
+
+        def invoke_detector_with_roi(func, payload):
+            self.assertEqual(func.id, id_function_detector)
+            self.assertEqual(self._get_payload_image_size(payload), (20, 30))
+            return [
+                {
+                    "confidence": "0.9959098",
+                    "label": "car",
+                    "points": [3, 4, 15, 16],
+                    "type": "rectangle",
+                },
+            ]
+
+        data = {
+            "function": id_function_detector,
+            "task": self.main_task["id"],
+            "cleanup": True,
+            "mapping": {
+                "car": {"name": "car"},
+            },
+            "roi": roi,
+        }
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=invoke_detector_with_roi,
+        ) as mock_invoke:
+            response = self._post_request(LAMBDA_REQUESTS_PATH, self.admin, data=data)
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            request_id = response.data["id"]
+
+            request_status = self._wait_lambda_request(request_id)
+            self.assertEqual(request_status, "finished")
+
+        self.assertEqual(mock_invoke.call_count, 3)
+        self._delete_lambda_request(request_id)
+
+        response = self._get_request(f'/api/tasks/{self.main_task["id"]}/annotations', self.admin)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        shapes = response.json()["shapes"]
+        self.assertEqual(len(shapes), 3)
+        for shape in shapes:
+            self.assertEqual(shape["points"], [13.0, 24.0, 25.0, 36.0])
+
+    def test_api_v2_lambda_functions_detector_invalid_roi(self):
+        invalid_rois = {
+            "too_few_coordinates": [0, 0, 10],
+            "too_many_coordinates": [0, 0, 10, 10, 10],
+            "negative_coordinate": [-1, 0, 10, 10],
+            "zero_width": [10, 10, 10, 20],
+            "zero_height": [10, 10, 20, 10],
+            "outside_image": [0, 0, 101, 100],
+        }
+
+        with mock.patch("cvat.apps.lambda_manager.views.LambdaGateway.invoke") as mock_invoke:
+            for name, roi in invalid_rois.items():
+                with self.subTest(path="request", roi=name):
+                    response = self._post_request(
+                        LAMBDA_REQUESTS_PATH,
+                        self.admin,
+                        data={
+                            "function": id_function_detector,
+                            "task": self.main_task["id"],
+                            "mapping": {
+                                "car": {"name": "car"},
+                            },
+                            "roi": roi,
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+                with self.subTest(path="call", roi=name):
+                    response = self._post_request(
+                        f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}",
+                        self.admin,
+                        data={
+                            "task": self.main_task["id"],
+                            "frame": 0,
+                            "mapping": {
+                                "car": {"name": "car"},
+                            },
+                            "roi": roi,
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+            mock_invoke.assert_not_called()
 
     @skip(
         "Fail: expected result != actual result"
@@ -969,6 +1197,43 @@ class LambdaTestCases(_LambdaTestCaseBase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("mapping", captured_payload)
         self.assertEqual(captured_payload["mapping"], {})
+    def test_api_v2_lambda_functions_create_interactor_with_roi(self):
+        roi = [10, 20, 30, 50]
+
+        def invoke_interactor_with_roi(func, payload):
+            self.assertEqual(func.id, id_function_interactor)
+            self.assertEqual(self._get_payload_image_size(payload), (20, 30))
+            self.assertEqual(payload["pos_points"], [[2, 3], [19, 29]])
+            self.assertEqual(payload["neg_points"], [[1, 2]])
+            self.assertEqual(payload["obj_bbox"], [[0, 0], [20, 30]])
+            return {
+                "shapes": [
+                    {
+                        "type": "polygon",
+                        "points": [1, 2, 3, 4, 5, 6],
+                    },
+                ],
+            }
+
+        data = {
+            "task": self.main_task["id"],
+            "frame": 0,
+            "pos_points": [[12, 23], [29, 49]],
+            "neg_points": [[11, 22]],
+            "obj_bbox": [[10, 20], [30, 50]],
+            "roi": roi,
+        }
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=invoke_interactor_with_roi,
+        ):
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_interactor}", self.admin, data=data
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["shapes"][0]["points"], [11, 22, 13, 24, 15, 26])
 
     def test_api_v2_lambda_functions_create_tracker(self):
         for id_func in [
@@ -1489,13 +1754,17 @@ class TestComplexFrameSetupCases(_LambdaTestCaseBase):
 
         self.labels = get_paginated_collection(
             lambda page: self._get_request(
-                f"/api/labels?task_id={self.task['id']}&page={page}&sort=id", self.admin
+                "/api/labels",
+                self.admin,
+                query_params={"task_id": self.task["id"], "page": page, "sort": "id"},
             )
         )
 
         self.jobs = get_paginated_collection(
             lambda page: self._get_request(
-                f"/api/jobs?task_id={self.task['id']}&page={page}", self.admin
+                "/api/jobs",
+                self.admin,
+                query_params={"task_id": self.task["id"], "page": page},
             )
         )
 
@@ -1722,8 +1991,7 @@ class TestComplexFrameSetupCases(_LambdaTestCaseBase):
 
         response = self._get_request(f'/api/tasks/{self.task["id"]}/annotations', self.admin)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        annotations = response.json()
-        self.assertEqual(annotations, {"version": 0, "tags": [], "shapes": [], "tracks": []})
+        check_annotation_response(self, response, {})
 
     def test_can_run_offline_reid_function_on_whole_gt_job(self):
         requested_frame_range = self.task_rel_frame_range[::3]
@@ -1797,8 +2065,7 @@ class TestComplexFrameSetupCases(_LambdaTestCaseBase):
 
         response = self._get_request(f'/api/tasks/{self.task["id"]}/annotations', self.admin)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        annotations = response.json()
-        self.assertEqual(annotations, {"version": 0, "tags": [], "shapes": [], "tracks": []})
+        check_annotation_response(self, response, {})
 
     def test_offline_function_run_on_task_does_not_affect_gt_job(self):
         response = self._post_request(
@@ -1832,8 +2099,7 @@ class TestComplexFrameSetupCases(_LambdaTestCaseBase):
 
         response = self._get_request(f'/api/jobs/{job["id"]}/annotations', self.admin)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        annotations = response.json()
-        self.assertEqual(annotations, {"version": 0, "tags": [], "shapes": [], "tracks": []})
+        check_annotation_response(self, response, {})
 
     def test_can_run_online_function_on_valid_task_frame(self):
         data = self.common_request_data.copy()

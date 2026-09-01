@@ -63,6 +63,12 @@ function TaskActionsComponent(props: Readonly<Props>): JSX.Element {
     }), shallowEqual);
 
     const isBulkMode = selectedIds.length > 1;
+    const isExportDatasetDisabled = isBulkMode &&
+        new Set(
+            currentTasks
+                .filter((task) => selectedIds.includes(task.id))
+                .map((task) => task.dimension),
+        ).size > 1;
     const {
         dropdownOpen,
         editField,
@@ -137,6 +143,7 @@ function TaskActionsComponent(props: Readonly<Props>): JSX.Element {
         await dispatch(makeBulkOperationAsync(
             tasksToUpdate,
             async (task) => {
+                // eslint-disable-next-line no-param-reassign
                 task.assignee = assignee;
                 if (onUpdateTask && task.id === taskInstance.id) {
                     onUpdateTask(task);
@@ -190,6 +197,7 @@ function TaskActionsComponent(props: Readonly<Props>): JSX.Element {
             dispatch(makeBulkOperationAsync(
                 tasksToUpdate,
                 async (task) => {
+                    // eslint-disable-next-line no-param-reassign
                     task.organizationId = newOrganization?.id ?? null;
                     await dispatch(updateTaskAsync(task, {}, ResourceUpdateTypes.UPDATE_ORGANIZATION));
                 },
@@ -266,6 +274,7 @@ function TaskActionsComponent(props: Readonly<Props>): JSX.Element {
             onMoveTaskToProject,
             onDeleteTask,
             selectedIds,
+            isExportDatasetDisabled,
         }, props);
     }
 

@@ -646,7 +646,8 @@ export class DrawHandlerImpl implements DrawHandler {
 
         this.canvas.on('mousemove.draw', (e: MouseEvent): void => {
             // TODO: Use enumeration after typification cvat-core
-            if (e.shiftKey && ['polygon', 'polyline'].includes(this.drawData.shapeType)) {
+            const slidingEnabled = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+            if (slidingEnabled && ['polygon', 'polyline'].includes(this.drawData.shapeType)) {
                 if (lastDrawnPoint.x === null || lastDrawnPoint.y === null) {
                     this.drawInstance.draw('point', e);
                 } else {
@@ -674,7 +675,7 @@ export class DrawHandlerImpl implements DrawHandler {
 
         this.drawInstance.on('drawdone', (e: CustomEvent): void => {
             const targetPoints = readPointsFromShape((e.target as any as { instance: SVG.Shape }).instance);
-            const { shapeType, redraw: clientID } = this.drawData;
+            const { shapeType, redraw: clientID, simplifyPoly } = this.drawData;
             const { points, box } = shapeType === 'cuboid' ?
                 this.getFinalCuboidCoordinates(targetPoints) :
                 this.getFinalPolyshapeCoordinates(targetPoints, true);
@@ -693,7 +694,9 @@ export class DrawHandlerImpl implements DrawHandler {
                     return;
                 }
 
-                this.onDrawDone({ clientID, shapeType, points }, Date.now() - this.startTimestamp);
+                this.onDrawDone({
+                    clientID, shapeType, points, simplifyPoly,
+                }, Date.now() - this.startTimestamp);
             } else {
                 this.onDrawDone(null);
             }

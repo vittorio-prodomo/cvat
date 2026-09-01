@@ -8,7 +8,6 @@ from allauth.account.forms import default_token_generator
 from allauth.account.models import EmailAddress
 from allauth.account.utils import user_pk_to_url_str
 from allauth.account.views import EmailVerificationSentView
-from django.contrib.auth.models import User
 from django.test import override_settings
 from django.urls import path, re_path, reverse
 from rest_framework import status
@@ -16,6 +15,7 @@ from rest_framework.authtoken.models import Token
 
 from cvat.apps.engine.tests.test_rest_api import create_db_users
 from cvat.apps.engine.tests.utils import ApiTestBase
+from cvat.apps.iam.models import User
 from cvat.apps.iam.views import ConfirmEmailViewEx
 from cvat.urls import urlpatterns as original_urlpatterns
 
@@ -77,6 +77,28 @@ class UserRegisterAPITestCase(ApiTestBase):
             },
         )
 
+    @override_settings(ACCOUNT_EMAIL_VERIFICATION="none")
+    def test_api_v2_user_register_normalizes_email_case(self):
+        user_data = {
+            **self.user_data,
+            "username": "test_username_mixed_case",
+            "email": "Test_Email@Test.com",
+        }
+        response = self._run_api_v2_user_register(user_data)
+        user_token = Token.objects.get(user__username=response.data["username"])
+        self._check_response(
+            response,
+            {
+                "first_name": "test_first",
+                "last_name": "test_last",
+                "username": "test_username_mixed_case",
+                "email": "test_email@test.com",
+                "email_verification_required": False,
+                "key": user_token.key,
+            },
+        )
+        self.assertTrue(User.objects.filter(email="test_email@test.com").exists())
+
     # Since URLConf is executed before running the tests, so we have to manually configure the url patterns for
     # the tests and pass it using ROOT_URLCONF in the override settings decorator
 
@@ -100,7 +122,7 @@ class UserRegisterAPITestCase(ApiTestBase):
         )
 
     @override_settings(
-        ACCOUNT_EMAIL_REQUIRED=True,
+        ACCOUNT_SIGNUP_FIELDS=["email*", "username*", "password1*", "password2*"],
         ACCOUNT_EMAIL_VERIFICATION="mandatory",
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
         ROOT_URLCONF=__name__,
@@ -123,7 +145,7 @@ class UserRegisterAPITestCase(ApiTestBase):
         )
 
     @override_settings(
-        ACCOUNT_EMAIL_REQUIRED=True,
+        ACCOUNT_SIGNUP_FIELDS=["email*", "username*", "password1*", "password2*"],
         ACCOUNT_EMAIL_VERIFICATION="mandatory",
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
         ROOT_URLCONF=__name__,
@@ -145,6 +167,7 @@ class UserRegisterAPITestCase(ApiTestBase):
             query_params={"org": org_slug},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(email=self.user_data["email"]).exists())
 
         response = self._run_api_v2_user_register(self.user_data)
         self._check_response(
@@ -159,6 +182,8 @@ class UserRegisterAPITestCase(ApiTestBase):
             },
         )
         invited_db_user = User.objects.get(email=self.user_data["email"])
+        self.assertEqual(User.objects.filter(email__iexact=self.user_data["email"]).count(), 1)
+        self.assertTrue(invited_db_user.memberships.filter(organization__slug=org_slug).exists())
         self.assertTrue(invited_db_user.emailaddress_set.update(verified=True))
         response = self.client.post(
             "/api/auth/login",
@@ -184,7 +209,7 @@ class UserRegisterAPITestCase(ApiTestBase):
         )
 
     @override_settings(
-        ACCOUNT_EMAIL_REQUIRED=True,
+        ACCOUNT_SIGNUP_FIELDS=["email*", "username*", "password1*", "password2*"],
         ACCOUNT_EMAIL_VERIFICATION="mandatory",
         EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
         ROOT_URLCONF=__name__,

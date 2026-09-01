@@ -7,11 +7,30 @@ from __future__ import annotations
 from enum import Enum
 from functools import cached_property
 
-from django.contrib.auth.models import User
+import attrs
+from django.conf import settings
 from django.db import models
 
 from cvat.apps.engine.models import Project, TimestampedModel
 from cvat.apps.organizations.models import Organization
+
+
+@attrs.define(frozen=True)
+class EventGroup:
+    display_name: str
+
+
+@attrs.define(frozen=True)
+class Event:
+    action: str
+    resource: str
+    group: EventGroup
+
+    @property
+    def key(self) -> str:
+        from cvat.apps.webhooks.event_type import event_key
+
+        return event_key(action=self.action, resource=self.resource)
 
 
 class WebhookTypeChoice(str, Enum):
@@ -54,7 +73,7 @@ class Webhook(TimestampedModel):
     enable_ssl = models.BooleanField(default=True)
 
     owner = models.ForeignKey(
-        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     project = models.ForeignKey(Project, null=True, on_delete=models.CASCADE, related_name="+")
     organization = models.ForeignKey(
@@ -68,7 +87,7 @@ class Webhook(TimestampedModel):
         constraints = [
             models.CheckConstraint(
                 name="webhooks_project_or_organization",
-                check=(
+                condition=(
                     models.Q(type=WebhookTypeChoice.PROJECT.value, project_id__isnull=False)
                     | models.Q(
                         type=WebhookTypeChoice.ORGANIZATION.value,
@@ -91,6 +110,10 @@ class WebhookDelivery(TimestampedModel):
     status_code = models.PositiveIntegerField(null=True, default=None)
     redelivery = models.BooleanField(default=False)
 
+    attempt = models.PositiveIntegerField(null=True)
+    request_duration = models.PositiveIntegerField(null=True)
+
+    # deprecated, kept for historical deliveries
     changed_fields = models.CharField(max_length=4096, default="")
 
     request = models.JSONField(default=dict)

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import textwrap
@@ -30,36 +31,41 @@ from drf_spectacular.utils import (
     extend_schema_view,
     inline_serializer,
 )
+from PIL import Image
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 import cvat.apps.dataset_manager as dm
 from cvat.apps.dataset_manager.task import PatchAction
-from cvat.apps.engine.frame_provider import TaskFrameProvider
 from cvat.apps.engine.log import ServerLogManager
+from cvat.apps.engine.media_io.frame_provider import TaskFrameProvider
 from cvat.apps.engine.models import (
     Job,
     Label,
+    MediaType,
     RequestAction,
     RequestTarget,
     ShapeType,
     SourceType,
     Task,
 )
+from cvat.apps.engine.permissions import TaskPermission
 from cvat.apps.engine.rq import RequestId, define_dependent_job
 from cvat.apps.engine.serializers import LabeledDataSerializer
+from cvat.apps.engine.task import ensure_task_is_initialized
 from cvat.apps.engine.types import ExtendedRequest
 from cvat.apps.engine.utils import get_rq_lock_by_user, get_rq_lock_for_job, take_by
 from cvat.apps.events.handlers import handle_function_call
 from cvat.apps.iam.filters import ORGANIZATION_OPEN_API_PARAMETERS
 from cvat.apps.lambda_manager.models import FunctionKind
-from cvat.apps.lambda_manager.permissions import LambdaPermission
+from cvat.apps.lambda_manager.permissions import LambdaPermission, LambdaRequestPermission
 from cvat.apps.lambda_manager.rq import LambdaRQMeta
 from cvat.apps.lambda_manager.serializers import (
     FunctionCallRequestSerializer,
     FunctionCallSerializer,
 )
 from cvat.apps.lambda_manager.signals import interactive_function_call_signal
+from cvat.apps.lambda_manager.utils import ROIHelper
 from cvat.utils.http import make_requests_session
 
 slogger = ServerLogManager(__name__)
@@ -312,7 +318,7 @@ class LambdaFunction:
     ):
         if db_job is not None and db_job.get_task_id() != db_task.id:
             raise ValidationError(
-                "Job task id does not match task id", code=status.HTTP_400_BAD_REQUEST
+                "Job task ID does not match task ID", code=status.HTTP_400_BAD_REQUEST
             )
 
         payload = {}
@@ -337,6 +343,8 @@ class LambdaFunction:
             payload.update(extra_params)
         mapping_is_specified = "mapping" in data
         mapping = data.get("mapping") if mapping_is_specified else None
+        requested_roi = data.get("roi")
+        roi = None
 
         model_labels = self.labels
         task_labels = db_task.get_labels(prefetch=True)
@@ -477,15 +485,45 @@ class LambdaFunction:
                         f"The {desc} is outside the job range", code=status.HTTP_400_BAD_REQUEST
                     )
 
+        if requested_roi is not None and self.kind not in {
+            FunctionKind.DETECTOR,
+            FunctionKind.INTERACTOR,
+        }:
+            raise ValidationError(
+                f"ROI is not supported for {self.kind} functions",
+                code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if self.kind in {FunctionKind.DETECTOR, FunctionKind.INTERACTOR}:
+            frame = mandatory_arg("frame")
+            if requested_roi is not None:
+                image, roi = self._get_roi(db_task, frame, requested_roi)
+            else:
+                image = self._get_image(db_task, frame)
+
         if self.kind == FunctionKind.DETECTOR:
-            payload.update({"image": self._get_image(db_task, mandatory_arg("frame"))})
+            payload.update({"image": image})
         elif self.kind == FunctionKind.INTERACTOR:
+            point_dx = -roi["xtl"] if roi else 0
+            point_dy = -roi["ytl"] if roi else 0
             payload.update(
                 {
-                    "image": self._get_image(db_task, mandatory_arg("frame")),
-                    "pos_points": mandatory_arg("pos_points"),
-                    "neg_points": mandatory_arg("neg_points"),
-                    "obj_bbox": data.get("obj_bbox", None),
+                    "image": image,
+                    "pos_points": ROIHelper.translate_prompt_points(
+                        mandatory_arg("pos_points"),
+                        dx=point_dx,
+                        dy=point_dy,
+                    ),
+                    "neg_points": ROIHelper.translate_prompt_points(
+                        mandatory_arg("neg_points"),
+                        dx=point_dx,
+                        dy=point_dy,
+                    ),
+                    "obj_bbox": ROIHelper.translate_prompt_points(
+                        data.get("obj_bbox", None),
+                        dx=point_dx,
+                        dy=point_dy,
+                    ),
                     "mapping": payload_mapping,
                 }
             )
@@ -643,6 +681,11 @@ class LambdaFunction:
                 frame=mandatory_arg("frame"),
                 annotations=response_filtered,
             )
+
+            if roi:
+                ROIHelper.translate_detector_shapes(
+                    response["shapes"], dx=roi["xtl"], dy=roi["ytl"]
+                )
         elif self.kind == FunctionKind.TRACKER:
             if "shapes" in response and not self.supported_shape_types:
                 response["shapes"] = [
@@ -656,8 +699,29 @@ class LambdaFunction:
                 signer.sign(json.dumps(state, separators=(",", ":")))
                 for state in response["states"]
             ]
+        elif self.kind == FunctionKind.INTERACTOR and roi:
+            response = ROIHelper.translate_interactor_response(
+                response,
+                roi=roi,
+                image_width=roi["image_width"],
+                image_height=roi["image_height"],
+            )
 
         return response
+
+    def _get_roi(self, db_task, frame, roi: list) -> tuple[str, dict]:
+        frame_provider = TaskFrameProvider(db_task)
+        frame_data = frame_provider.get_frame(frame)
+        image_bytes = frame_data.data.getvalue()
+
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            parsed_roi = ROIHelper.parse_roi(roi)
+            parsed_roi.update({"image_width": image.width, "image_height": image.height})
+            cropped_image = ROIHelper.crop_image(image, parsed_roi)
+
+            with io.BytesIO() as output:
+                cropped_image.save(output, format=cropped_image.format or "PNG")
+                return base64.b64encode(output.getvalue()).decode("utf-8"), parsed_roi
 
     def _get_image(self, db_task, frame):
         frame_provider = TaskFrameProvider(db_task)
@@ -697,9 +761,10 @@ class LambdaQueue:
         conv_mask_to_poly,
         max_distance,
         extra_params,
-        request,
+        request: ExtendedRequest,
         *,
         job: int | None = None,
+        roi: list | None = None,
     ) -> LambdaJob:
         queue = self._get_queue()
         rq_id = RequestId(
@@ -729,8 +794,10 @@ class LambdaQueue:
 
             with get_rq_lock_by_user(queue, user_id):
                 meta = LambdaRQMeta.build_for(
-                    request=request,
-                    db_obj=Job.objects.get(pk=job) if job else Task.objects.get(pk=task),
+                    user=request.user,
+                    uuid=request.uuid,
+                    request_manager_cls=type(self),
+                    instance=Job.objects.get(pk=job) if job else Task.objects.get(pk=task),
                     function_id=lambda_func.id,
                 )
                 rq_job = queue.create_job(
@@ -747,6 +814,7 @@ class LambdaQueue:
                         "mapping": mapping,
                         "max_distance": max_distance,
                         "extra_params": extra_params or {},
+                        "roi": roi,
                     },
                     depends_on=define_dependent_job(queue, user_id),
                     result_ttl=self.RESULT_TTL.total_seconds(),
@@ -964,6 +1032,12 @@ class LambdaJob:
     def get_task(self):
         return self.job.kwargs.get("task")
 
+    def get_job(self):
+        return self.job.kwargs.get("job")
+
+    def get_owner(self):
+        return LambdaRQMeta.for_job(self.job).user
+
     def get_status(self):
         return self.job.get_status()
 
@@ -1005,6 +1079,7 @@ class LambdaJob:
         extra_params: dict | None = None,
         *,
         db_job: Job | None = None,
+        roi: list | None = None,
     ):
         collector = DetectionResultCollector(db_task, db_job)
 
@@ -1025,6 +1100,7 @@ class LambdaJob:
                     "threshold": threshold,
                     "conv_mask_to_poly": conv_mask_to_poly,
                     "extra_params": extra_params or {},
+                    "roi": roi,
                 },
                 converter=converter,
             )
@@ -1201,6 +1277,7 @@ class LambdaJob:
                 kwargs.get("conv_mask_to_poly"),
                 kwargs.get("extra_params") or {},
                 db_job=db_job,
+                roi=kwargs.get("roi"),
             )
         elif function.kind == FunctionKind.REID:
             cls._call_reid(
@@ -1318,6 +1395,9 @@ class FunctionViewSet(viewsets.ViewSet):
                 code=status.HTTP_400_BAD_REQUEST,
             )
 
+        if db_task.media_type == MediaType.AUDIO:
+            raise serializers.ValidationError("Auto-annotation is not available in audio tasks")
+
         gateway = LambdaGateway()
         lambda_func = gateway.get(func_id)
 
@@ -1391,7 +1471,7 @@ class FunctionViewSet(viewsets.ViewSet):
 )
 class RequestViewSet(viewsets.ViewSet):
     iam_supports_organization_params = False
-    iam_permission_class = LambdaPermission
+    iam_permission_class = LambdaRequestPermission
     serializer_class = None
 
     @return_response()
@@ -1401,7 +1481,7 @@ class RequestViewSet(viewsets.ViewSet):
         queued_task_ids = set(job.get_task() for job in queued_jobs if job.get_task())
         visible_task_ids = set()
         if queued_task_ids:
-            perm = LambdaPermission.create_scope_list(request)
+            perm = TaskPermission.create_scope_list(request)
 
             queryset = perm.filter(Task.objects).values_list("id", flat=True)
 
@@ -1430,6 +1510,7 @@ class RequestViewSet(viewsets.ViewSet):
             mapping = request_data.get("mapping")
             max_distance = request_data.get("max_distance")
             extra_params = request_data.get("extra_params") or {}
+            roi = request_data.get("roi")
         except KeyError as err:
             raise ValidationError(
                 "`{}` lambda function was run ".format(request_data.get("function", "undefined"))
@@ -1437,9 +1518,29 @@ class RequestViewSet(viewsets.ViewSet):
                 code=status.HTTP_400_BAD_REQUEST,
             )
 
+        db_task = Task.objects.get(pk=task)
+
+        if job is not None:
+            db_job = Job.objects.select_related("segment").get(pk=job)
+            if db_job.segment.task_id != db_task.id:
+                raise serializers.ValidationError(f"Job task ID does not match task ID")
+
+        ensure_task_is_initialized(task=db_task)
+
+        if db_task.media_type == MediaType.AUDIO:
+            raise serializers.ValidationError("Auto-annotation is not available in audio tasks")
+
         gateway = LambdaGateway()
         queue = LambdaQueue()
         lambda_func = gateway.get(function)
+        if roi is not None and lambda_func.kind != FunctionKind.DETECTOR:
+            raise ValidationError(
+                f"ROI is not supported for {lambda_func.kind} functions",
+                code=status.HTTP_400_BAD_REQUEST,
+            )
+        if roi is not None and lambda_func.kind == FunctionKind.DETECTOR:
+            ROIHelper.validate_task_roi(task, roi)
+
         rq_job = queue.enqueue(
             lambda_func,
             threshold,
@@ -1451,6 +1552,7 @@ class RequestViewSet(viewsets.ViewSet):
             extra_params,
             request,
             job=job,
+            roi=roi,
         )
 
         handle_function_call(function, job or task, category="batch")
@@ -1460,16 +1562,16 @@ class RequestViewSet(viewsets.ViewSet):
 
     @return_response()
     def retrieve(self, request, pk):
-        self.check_object_permissions(request, pk)
         queue = LambdaQueue()
         rq_job = queue.fetch_job(pk)
+        self.check_object_permissions(request, rq_job)
 
         response_serializer = FunctionCallSerializer(rq_job.to_dict())
         return response_serializer.data
 
     @return_response(status.HTTP_204_NO_CONTENT)
     def destroy(self, request, pk):
-        self.check_object_permissions(request, pk)
         queue = LambdaQueue()
         rq_job = queue.fetch_job(pk)
+        self.check_object_permissions(request, rq_job)
         rq_job.delete()

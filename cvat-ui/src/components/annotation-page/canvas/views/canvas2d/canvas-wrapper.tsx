@@ -7,10 +7,9 @@ import './styles.scss';
 
 import React from 'react';
 import { connect } from 'react-redux';
-import Slider from 'antd/lib/slider';
 import Spin from 'antd/lib/spin';
 import Popover from 'antd/lib/popover';
-import { PlusCircleOutlined, UpOutlined } from '@ant-design/icons';
+import Icon, { UpOutlined } from '@ant-design/icons';
 import notification from 'antd/lib/notification';
 import debounce from 'lodash/debounce';
 
@@ -19,15 +18,19 @@ import {
     ColorBy, GridColor, Workspace, ActiveControl, CombinedState,
 } from 'reducers';
 import { EventScope } from 'cvat-logger';
-import { Canvas, HighlightSeverity, CanvasHint } from 'cvat-canvas-wrapper';
+import {
+    Canvas, HighlightSeverity, CanvasHint, RenderData,
+} from 'cvat-canvas-wrapper';
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import {
     AnnotationConflict, ObjectState, ObjectType, ShapeType, QualityConflict, getCore,
 } from 'cvat-core-wrapper';
-import { scrollAndExpandState } from 'utils/objects-sidebar';
+import { openZLayerInObjectsSidebar, scrollAndExpandState } from 'utils/objects-sidebar';
+import getHiddenZLayers from 'utils/get-hidden-z-layers';
 import config from 'config';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import FrameTags from 'components/annotation-page/tag-annotation-workspace/frame-tags';
+import { LayerStackIcon } from 'icons';
 import {
     confirmCanvasReadyAsync,
     resetCanvas,
@@ -41,13 +44,13 @@ import {
     splitAnnotationsAsync,
     activateObject,
     updateCanvasContextMenu,
-    addZLayer,
-    switchZLayer,
     fetchAnnotationsAsync,
     getDataFailed,
     canvasErrorOccurred,
     updateEditedStateAsync,
     collapseObjectItems,
+    collapseSidebar,
+    AnnotationSource,
 } from 'actions/annotation-actions';
 import {
     switchGrid,
@@ -79,6 +82,7 @@ interface StateToProps {
     activatedElementID: number | null;
     activatedAttributeID: number | null;
     annotations: ObjectState[];
+    renderData: RenderData;
     frameData: any;
     frameAngle: number;
     canvasIsReady: boolean;
@@ -109,9 +113,9 @@ interface StateToProps {
     textContent: string;
     showAllInterpolationTracks: boolean;
     workspace: Workspace;
-    minZLayer: number;
-    maxZLayer: number;
-    curZLayer: number;
+    currentZLayer: number;
+    hiddenZLayers: Set<number>;
+    sidebarCollapsed: boolean;
     automaticBordering: boolean;
     snapToPoint: boolean;
     adaptiveZoom: boolean;
@@ -132,7 +136,7 @@ interface DispatchToProps {
     onResetCanvas: () => void;
     updateActiveControl: (activeControl: ActiveControl) => void;
     onUpdateAnnotations(states: ObjectState[]): void;
-    onCreateAnnotations(states: ObjectState[]): void;
+    onCreateAnnotations(states: ObjectState[], source?: AnnotationSource): void;
     onMergeAnnotations(states: ObjectState[]): void;
     onSplitAnnotations(state: ObjectState): void;
     onGroupAnnotations(states: ObjectState[]): void;
@@ -140,8 +144,7 @@ interface DispatchToProps {
     onSliceAnnotations(state: ObjectState, results: number[][]): void;
     onActivateObject: (activatedStateID: number | null, activatedElementID: number | null) => void;
     onExpandObject(objectState: ObjectState): void;
-    onAddZLayer(): void;
-    onSwitchZLayer(cur: number): void;
+    onOpenLayerStack(sidebarCollapsed: boolean): void;
     onChangeBrightnessLevel(level: number): void;
     onChangeContrastLevel(level: number): void;
     onChangeSaturationLevel(level: number): void;
@@ -174,9 +177,11 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedStateID,
                 activatedElementID,
                 activatedAttributeID,
-                zLayer: { cur: curZLayer, min: minZLayer, max: maxZLayer },
+                zLayer: { cur: currentZLayer },
                 highlightedConflict,
+                renderData,
             },
+            sidebarCollapsed,
             workspace,
         },
         settings: {
@@ -225,6 +230,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         activatedElementID,
         activatedAttributeID,
         annotations,
+        renderData,
         opacity: opacity / 100,
         colorBy,
         selectedOpacity: selectedOpacity / 100,
@@ -251,9 +257,9 @@ function mapStateToProps(state: CombinedState): StateToProps {
         textContent,
         showAllInterpolationTracks,
         showTagsOnFrame,
-        curZLayer,
-        minZLayer,
-        maxZLayer,
+        currentZLayer,
+        hiddenZLayers: getHiddenZLayers(state),
+        sidebarCollapsed,
         automaticBordering,
         snapToPoint,
         adaptiveZoom,
@@ -317,8 +323,11 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         onUpdateAnnotations(states: ObjectState[]): void {
             dispatch(updateAnnotationsAsync(states));
         },
-        onCreateAnnotations(states: ObjectState[]): void {
-            dispatch(createAnnotationsAsync(states));
+        onCreateAnnotations(
+            states: ObjectState[],
+            source: AnnotationSource = AnnotationSource.OTHER,
+        ): void {
+            dispatch(createAnnotationsAsync(states, source));
         },
         onMergeAnnotations(states: ObjectState[]): void {
             dispatch(mergeAnnotationsAsync(states));
@@ -345,11 +354,12 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         onExpandObject(objectState: ObjectState): void {
             dispatch(collapseObjectItems([objectState], false));
         },
-        onAddZLayer(): void {
-            dispatch(addZLayer());
-        },
-        onSwitchZLayer(cur: number): void {
-            dispatch(switchZLayer(cur));
+        onOpenLayerStack(sidebarCollapsed: boolean): void {
+            if (sidebarCollapsed) {
+                dispatch(collapseSidebar());
+            }
+
+            openZLayerInObjectsSidebar();
         },
         onChangeBrightnessLevel(level: number): void {
             dispatch(changeBrightnessLevel(level));
@@ -465,7 +475,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             frameAngle,
             annotations,
             activatedStateID,
-            curZLayer,
+            hiddenZLayers,
             resetZoom,
             smoothImage,
             grid,
@@ -492,6 +502,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             highlightedConflict,
             imageFilters,
             focusedObjectPadding,
+            renderData,
         } = this.props;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
 
@@ -599,7 +610,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         if (
             prevProps.annotations !== annotations ||
             prevProps.frameData !== frameData ||
-            prevProps.curZLayer !== curZLayer
+            prevProps.hiddenZLayers !== hiddenZLayers ||
+            prevProps.renderData !== renderData
         ) {
             this.updateCanvas();
         } else if (prevProps.imageFilters !== imageFilters) {
@@ -688,14 +700,14 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     private onCanvasShapeDrawn = (event: any): void => {
         const {
             jobInstance, activeLabelID, activeObjectType, frame, updateActiveControl, onCreateAnnotations,
-            onUpdateEditedObject, activeObjectHidden, workspace,
+            onUpdateEditedObject, activeObjectHidden, workspace, currentZLayer,
         } = this.props;
 
         if (!event.detail.continue) {
             updateActiveControl(ActiveControl.CURSOR);
         }
 
-        const { state, duration } = event.detail;
+        const { state, duration, simplifyPoly } = event.detail;
         const isDrawnFromScratch = !state.label;
 
         state.objectType = state.shapeType === ShapeType.MASK ?
@@ -703,6 +715,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         state.label = state.label || jobInstance.labels.filter((label: any) => label.id === activeLabelID)[0];
         state.frame = frame;
         state.rotation = state.rotation || 0;
+        state.zOrder = currentZLayer;
         state.occluded = state.occluded || false;
         state.outside = state.outside || false;
         state.hidden = state.hidden || (activeObjectHidden && workspace !== Workspace.SINGLE_SHAPE);
@@ -723,9 +736,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         } else {
             jobInstance.logger.log(EventScope.pasteObject, { count: 1, duration });
         }
-
         const objectState = new cvat.classes.ObjectState(state);
-        onCreateAnnotations([objectState]);
+
+        const source = simplifyPoly && [ShapeType.POLYGON, ShapeType.POLYLINE].includes(state.shapeType) ?
+            AnnotationSource.DRAW_SIMPLIFIED_POLY : AnnotationSource.OTHER;
+
+        onCreateAnnotations([objectState], source);
         onUpdateEditedObject(null);
     };
 
@@ -797,6 +813,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         const { workspace, activatedStateID, onActivateObject } = this.props;
 
         if ((e.target as HTMLElement).tagName === 'svg' && e.button !== 2) {
+            // Native double-click selection can escape from the SVG canvas to nearby UI text.
+            // Prevent only repeated SVG clicks, keeping regular canvas clicks and drags unchanged.
+            if (e.detail > 1) {
+                e.preventDefault();
+            }
+
             if (activatedStateID !== null && workspace !== Workspace.ATTRIBUTES) {
                 onActivateObject(null, null);
             }
@@ -994,8 +1016,8 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     private updateCanvas(): void {
         const {
-            curZLayer, annotations, frameData,
-            workspace, frame, imageFilters,
+            hiddenZLayers, annotations, frameData,
+            workspace, frame, imageFilters, renderData,
         } = this.props;
 
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
@@ -1004,7 +1026,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 frame,
                 workspace,
                 exclude: [ObjectType.TAG],
-            });
+            }).filter((state: ObjectState): boolean => !hiddenZLayers.has(state.zOrder));
             const proxy = new Proxy(frameData, {
                 get: (_frameData, prop, receiver) => {
                     if (prop === 'data') {
@@ -1050,7 +1072,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             canvasInstance.setup(
                 proxy,
                 frameData.deleted ? [] : filteredAnnotations,
-                curZLayer,
+                renderData,
             );
             canvasInstance.configure({ forceFrameUpdate: false });
         }
@@ -1130,9 +1152,9 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
     public render(): JSX.Element {
         const {
-            maxZLayer,
-            curZLayer,
-            minZLayer,
+            currentZLayer,
+            hiddenZLayers,
+            sidebarCollapsed,
             keyMap,
             automaticBordering,
             snapToPoint,
@@ -1143,8 +1165,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             focusedObjectPadding,
             onSwitchAutomaticBordering,
             onSwitchSnapToPoint,
-            onSwitchZLayer,
-            onAddZLayer,
+            onOpenLayerStack,
             onActivateObject,
             onExpandObject,
         } = this.props;
@@ -1158,7 +1179,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
         const navigateObject = (step: number): void => {
             const filteredStates = annotations.filter(
-                (state) => !state.outside && !state.hidden && state.zOrder <= curZLayer,
+                (state) => !state.outside && !state.hidden && !hiddenZLayers.has(state.zOrder),
             );
             if (filteredStates.length) {
                 const currentIndex = filteredStates.findIndex((state) => state.clientID === activatedStateID);
@@ -1234,21 +1255,17 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                     <UpOutlined className='cvat-canvas-image-setups-trigger' />
                 </Popover>
 
-                <div className='cvat-canvas-z-axis-wrapper'>
-                    <Slider
-                        disabled={minZLayer === maxZLayer}
-                        min={minZLayer}
-                        max={maxZLayer}
-                        value={curZLayer}
-                        vertical
-                        reverse
-                        defaultValue={0}
-                        onChange={(value: number): void => onSwitchZLayer(value as number)}
-                    />
-                    <CVATTooltip title={`Add new layer ${maxZLayer + 1} and switch to it`}>
-                        <PlusCircleOutlined onClick={onAddZLayer} />
-                    </CVATTooltip>
-                </div>
+                <CVATTooltip title={`Open layer stack. Current layer ${currentZLayer}`}>
+                    <button
+                        className='cvat-canvas-layer-stack-trigger'
+                        type='button'
+                        aria-label={`Open layer stack. Current layer ${currentZLayer}`}
+                        onClick={(): void => onOpenLayerStack(sidebarCollapsed)}
+                    >
+                        <Icon component={LayerStackIcon} />
+                        <span className='cvat-canvas-layer-stack-trigger-layer'>{currentZLayer}</span>
+                    </button>
+                </CVATTooltip>
 
                 {showTagsOnFrame ? (
                     <div className='cvat-canvas-frame-tags'>

@@ -14,7 +14,6 @@ from dj_rest_auth.serializers import (
     PasswordResetSerializer,
 )
 from django.conf import settings
-from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
@@ -22,17 +21,18 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from cvat.apps.iam.forms import ResetPasswordFormEx
+from cvat.apps.iam.models import User
 from cvat.apps.iam.password_validation import (
     DEFAULT_MAX_PASSWORD_LENGTH,
     DEFAULT_MIN_PASSWORD_LENGTH,
 )
-from cvat.apps.iam.utils import get_dummy_or_regular_user
+from cvat.apps.iam.utils import get_dummy_or_regular_user, is_signup_email_required
 
 
 class RegisterSerializerEx(RegisterSerializer):
     # workaround for https://github.com/iMerica/dj-rest-auth/issues/707
     email = serializers.EmailField(
-        required=allauth_settings.EMAIL_REQUIRED, max_length=allauth_settings.EMAIL_MAX_LENGTH
+        required=is_signup_email_required(), max_length=allauth_settings.EMAIL_MAX_LENGTH
     )
     # Override the upstream password fields to expose CVAT's explicit password
     # length contract in the API schema and enforce it at the serializer boundary.
@@ -180,38 +180,32 @@ class LoginSerializerEx(LoginSerializer):
     def get_auth_user_using_allauth(self, username, email, password):
 
         def is_email_authentication():
-            return (
-                settings.ACCOUNT_AUTHENTICATION_METHOD
-                == allauth_settings.AuthenticationMethod.EMAIL
-            )
+            return allauth_settings.LOGIN_METHODS == {allauth_settings.LoginMethod.EMAIL}
 
         def is_username_authentication():
-            return (
-                settings.ACCOUNT_AUTHENTICATION_METHOD
-                == allauth_settings.AuthenticationMethod.USERNAME
-            )
+            return allauth_settings.LOGIN_METHODS == {allauth_settings.LoginMethod.USERNAME}
 
         # check that the server settings match the request
         if is_username_authentication() and not username and email:
             raise ValidationError(
                 "Attempt to authenticate with email/password. "
                 "But username/password are used for authentication on the server. "
-                "Please check your server configuration ACCOUNT_AUTHENTICATION_METHOD."
+                "Please check your server configuration ACCOUNT_LOGIN_METHODS."
             )
 
         if is_email_authentication() and not email and username:
             raise ValidationError(
                 "Attempt to authenticate with username/password. "
                 "But email/password are used for authentication on the server. "
-                "Please check your server configuration ACCOUNT_AUTHENTICATION_METHOD."
+                "Please check your server configuration ACCOUNT_LOGIN_METHODS."
             )
 
         # Authentication through email
-        if settings.ACCOUNT_AUTHENTICATION_METHOD == allauth_settings.AuthenticationMethod.EMAIL:
+        if is_email_authentication():
             return self._validate_email(email, password)
 
         # Authentication through username
-        if settings.ACCOUNT_AUTHENTICATION_METHOD == allauth_settings.AuthenticationMethod.USERNAME:
+        if is_username_authentication():
             return self._validate_username(username, password)
 
         # Authentication through either username or email

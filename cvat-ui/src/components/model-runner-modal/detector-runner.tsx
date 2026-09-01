@@ -11,9 +11,8 @@ import Text from 'antd/lib/typography/Text';
 import InputNumber from 'antd/lib/input-number';
 import Button from 'antd/lib/button';
 import Switch from 'antd/lib/switch';
-import Tag from 'antd/lib/tag';
 import notification from 'antd/lib/notification';
-import { ArrowRightOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 
 import CVATTooltip from 'components/common/cvat-tooltip';
 import ModelExtraParamsForm, {
@@ -24,6 +23,7 @@ import { clamp } from 'utils/math';
 import {
     MLModel, ModelKind, DimensionType, Label, LabelType,
 } from 'cvat-core-wrapper';
+import { type Canvas } from 'cvat-canvas-wrapper';
 
 import LabelsMapperComponent, { LabelInterface, FullMapping } from './labels-mapper';
 import {
@@ -32,12 +32,19 @@ import {
     convertTaskLabels,
     convertModelLabels,
 } from './label-mapping-utils';
+import RegionOfInterestInputComponent from './region-of-interest-input';
+
+export type RegionOfInterest = NonNullable<AnnotateTaskRequestBody['roi']> | null;
 
 interface Props {
     withCleanup: boolean;
     models: MLModel[];
     labels: Label[];
     dimension: DimensionType;
+    frameWidth?: number;
+    frameHeight?: number;
+    canvasInstance?: Canvas;
+    onRegionOfInterestChange?: (regionOfInterest: RegionOfInterest) => void;
     runInference(model: MLModel, body: object): void;
 }
 
@@ -48,11 +55,13 @@ export interface AnnotateTaskRequestBody {
     conv_mask_to_poly: boolean;
     threshold?: number;
     extra_params?: Record<string, unknown>;
+    roi?: [number, number, number, number];
 }
 
 function DetectorRunner(props: Props): JSX.Element {
     const {
         models, withCleanup, labels, dimension, runInference,
+        frameWidth, frameHeight, canvasInstance, onRegionOfInterestChange,
     } = props;
 
     const [modelID, setModelID] = useState<string | null>(null);
@@ -65,10 +74,12 @@ function DetectorRunner(props: Props): JSX.Element {
     const [modelLabels, setModelLabels] = useState<LabelInterface[]>([]);
     const [taskLabels, setTaskLabels] = useState<LabelInterface[]>([]);
     const [extraParams, setExtraParams] = useState<Record<string, unknown>>({});
+    const [regionOfInterest, setRegionOfInterest] = useState<RegionOfInterest>(null);
 
     const model = models.find((_model): boolean => _model.id === modelID);
     const isDetector = model?.kind === ModelKind.DETECTOR;
     const isReId = model?.kind === ModelKind.REID;
+    const showROI = isDetector && dimension === DimensionType.DIMENSION_2D;
     const convertMasks2PolygonVisible = isDetector &&
         [LabelType.ANY, LabelType.MASK].includes(model.returnType);
 
@@ -96,6 +107,18 @@ function DetectorRunner(props: Props): JSX.Element {
         }
     }, [labels, model]);
 
+    useEffect(() => {
+        if (!showROI) {
+            setRegionOfInterest(null);
+        }
+    }, [showROI]);
+
+    useEffect(() => {
+        if (onRegionOfInterestChange) {
+            onRegionOfInterestChange(regionOfInterest);
+        }
+    }, [regionOfInterest]);
+
     return (
         <div className='cvat-run-model-content'>
             <Row align='middle'>
@@ -122,14 +145,10 @@ function DetectorRunner(props: Props): JSX.Element {
             {isDetector && (
                 <div>
                     <div className='cvat-detector-runner-mapping-header'>
-                        <div>
-                            <Text strong>Setup mapping between labels and attributes</Text>
-                        </div>
-                        <div>
-                            <Tag>Model Spec</Tag>
-                            <ArrowRightOutlined />
-                            <Tag>CVAT Spec</Tag>
-                        </div>
+                        <Text>Setup mapping between labels and attributes</Text>
+                        <CVATTooltip title='Each class, or attribute that model may predict, may be mapped to a label or attribute of the current specification'>
+                            <QuestionCircleOutlined className='cvat-info-circle-icon' />
+                        </CVATTooltip>
                     </div>
                     <LabelsMapperComponent
                         key={modelID} // rerender when model switched
@@ -138,6 +157,37 @@ function DetectorRunner(props: Props): JSX.Element {
                         taskLabels={taskLabels}
                     />
                 </div>
+            )}
+            {isDetector && (
+                <div className='cvat-detector-runner-threshold-wrapper'>
+                    <div>
+                        <Text>Threshold</Text>
+                        <CVATTooltip title='Minimum confidence threshold for detections. Leave empty to use the default value specified in the model settings'>
+                            <QuestionCircleOutlined className='cvat-info-circle-icon' />
+                        </CVATTooltip>
+                    </div>
+                    <Row align='middle' justify='start'>
+                        <Col>
+                            <InputNumber
+                                min={0.01}
+                                step={0.01}
+                                max={1}
+                                value={detectorThreshold}
+                                onChange={(value: number | null) => {
+                                    setDetectorThreshold(value);
+                                }}
+                            />
+                        </Col>
+                    </Row>
+                </div>
+            )}
+            {showROI && (
+                <RegionOfInterestInputComponent
+                    frameWidth={frameWidth}
+                    frameHeight={frameHeight}
+                    canvasInstance={canvasInstance}
+                    onSubmit={setRegionOfInterest}
+                />
             )}
             {convertMasks2PolygonVisible && (
                 <div className='cvat-detector-runner-convert-masks-to-polygons-wrapper'>
@@ -157,29 +207,6 @@ function DetectorRunner(props: Props): JSX.Element {
                         onChange={(checked: boolean): void => setCleanup(checked)}
                     />
                     <Text>Clean previous annotations</Text>
-                </div>
-            )}
-            {isDetector && (
-                <div className='cvat-detector-runner-threshold-wrapper'>
-                    <Row align='middle' justify='start'>
-                        <Col>
-                            <InputNumber
-                                min={0.01}
-                                step={0.01}
-                                max={1}
-                                value={detectorThreshold}
-                                onChange={(value: number | null) => {
-                                    setDetectorThreshold(value);
-                                }}
-                            />
-                        </Col>
-                        <Col>
-                            <Text>Threshold</Text>
-                            <CVATTooltip title='Minimum confidence threshold for detections. Leave empty to use the default value specified in the model settings'>
-                                <QuestionCircleOutlined className='cvat-info-circle-icon' />
-                            </CVATTooltip>
-                        </Col>
-                    </Row>
                 </div>
             )}
             {isDetector && (
@@ -252,12 +279,11 @@ function DetectorRunner(props: Props): JSX.Element {
                                     mapping: serverMapping,
                                     cleanup,
                                     conv_mask_to_poly: convertMasksToPolygons,
-                                    ...(detectorThreshold !== null ?
-                                        { threshold: detectorThreshold } :
-                                        {}),
+                                    ...(detectorThreshold !== null ? { threshold: detectorThreshold } : {}),
                                     ...(Object.keys(nonNullExtraParams).length ?
                                         { extra_params: nonNullExtraParams } :
                                         {}),
+                                    ...(regionOfInterest ? { roi: regionOfInterest } : {}),
                                 };
 
                                 runInference(model, body);

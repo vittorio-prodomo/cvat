@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 class SublabelMappingEntrySerializer(serializers.Serializer):
     name = serializers.CharField()
-    attributes = serializers.DictField(child=serializers.CharField(), required=False)
+    attributes = serializers.DictField(child=serializers.CharField(max_length=64), required=False)
 
 
 class LabelMappingEntrySerializer(serializers.Serializer):
@@ -56,6 +56,13 @@ class FunctionCallRequestSerializer(serializers.Serializer):
             "Model-specific runtime parameters forwarded verbatim to the function payload. "
             "Declared by the function via the extra_params_schema annotation in function.yaml."
         ),
+    )
+    roi = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=4,
+        max_length=4,
+        required=False,
+        help_text="Region of interest as [xtl, ytl, xbr, ybr]",
     )
 
 
