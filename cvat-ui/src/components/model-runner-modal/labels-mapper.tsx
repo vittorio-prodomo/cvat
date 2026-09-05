@@ -4,51 +4,22 @@
 
 import React, { useCallback, useRef } from 'react';
 
-import { Attribute, Label, LabelType } from 'cvat-core-wrapper';
+import { LabelType } from 'cvat-core-wrapper';
 import ObjectMatcher from './object-mapper';
 import { computeLabelsAutoMapping, labelsCompatible } from './labels-auto-mapping';
+import { buildAutoMappingEntry, computeAttributesAutoMapping } from './label-mapping-initialization';
+import type {
+    AttributeInterface, FullMapping, LabelInterface,
+} from './label-mapping-types';
 
-export type Md2JobAttributesMapping = [AttributeInterface | null, AttributeInterface | null][];
-export type Md2JobLabelsMapping = [LabelInterface, LabelInterface][];
-
-// The latest tuple element is child mapping (e.g. for skeleton points)
-export type FullMapping = [LabelInterface, LabelInterface, Md2JobAttributesMapping, FullMapping][];
-
-export interface AttributeInterface {
-    name: Attribute['name'];
-    values: Attribute['values'];
-    input_type: Attribute['inputType'];
-}
-
-export interface LabelInterface {
-    name: Label['name'];
-    type: Label['type'];
-    color?: Label['color'];
-    attributes?: AttributeInterface[];
-    sublabels?: Omit<LabelInterface, 'sublabels'>[];
-}
+export type {
+    AttributeInterface, FullMapping, LabelInterface, Md2JobAttributesMapping, Md2JobLabelsMapping,
+} from './label-mapping-types';
 
 interface Props {
     modelLabels: LabelInterface[];
     taskLabels: LabelInterface[];
     onUpdateMapping(mapping: FullMapping): void;
-}
-
-function computeAttributesAutoMapping(
-    modelAttributes: AttributeInterface[],
-    taskAttributes: AttributeInterface[],
-): Md2JobAttributesMapping {
-    const autoMapping: Md2JobAttributesMapping = [];
-    for (let i = 0; i < modelAttributes.length; i++) {
-        for (let j = 0; j < taskAttributes.length; j++) {
-            const modelAttribute = modelAttributes[i];
-            const taskAttribute = taskAttributes[j];
-            if (modelAttribute.name === taskAttribute.name) {
-                autoMapping.push([modelAttribute, taskAttribute]);
-            }
-        }
-    }
-    return autoMapping;
 }
 
 function LabelsMapperComponent(props: Props): JSX.Element {
@@ -107,7 +78,9 @@ function LabelsMapperComponent(props: Props): JSX.Element {
                     return [...acc, item];
                 }
 
-                return [...acc, [modelSublabel, taskSublabel, [], []]];
+                return [...acc, buildAutoMappingEntry(
+                    modelSublabel, taskSublabel, computeLabelsAutoMapping,
+                )];
             }, []);
 
             const copy = mapping.filter((_, _index: number) => index !== _index);
@@ -276,7 +249,7 @@ function LabelsMapperComponent(props: Props): JSX.Element {
                         return [...acc, item];
                     }
 
-                    return [...acc, [modelLabel, taskLabel, [], []]];
+                    return [...acc, buildAutoMappingEntry(modelLabel, taskLabel, computeLabelsAutoMapping)];
                 }, []);
 
                 setMapping(updated);

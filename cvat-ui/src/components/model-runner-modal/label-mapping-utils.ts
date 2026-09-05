@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { Label } from 'cvat-core-wrapper';
-import { LabelInterface, FullMapping } from './labels-mapper';
+import type { LabelInterface, FullMapping } from './label-mapping-types';
 
 export type ServerMapping = Record<string, {
     name: string;
