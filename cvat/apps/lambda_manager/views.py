@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import os
 import textwrap
 from copy import deepcopy
@@ -863,9 +864,26 @@ class DetectionResultConverter:
                 else:
                     data["shapes"].append(parsed)
 
+        score_presence = ["score" in shape for shape in data["shapes"]]
         serializer = LabeledDataSerializer(data=data)
         serializer.is_valid(raise_exception=True)
-        return serializer.validated_data
+        validated = serializer.validated_data
+        for shape, had_score in zip(validated["shapes"], score_presence):
+            if not had_score:
+                shape.pop("score", None)
+        return validated
+
+    @staticmethod
+    def _normalize_confidence(value):
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            return None
+        return confidence
 
     def _parse_anno(
         self, *, labels: dict, conv_mask_to_poly: bool, frame: int, anno: dict
@@ -904,6 +922,10 @@ class DetectionResultConverter:
                 ),
                 "z_order": 0,
             }
+
+            confidence = self._normalize_confidence(anno.get("confidence"))
+            if confidence is not None:
+                shape["score"] = confidence
 
             if shape["type"] in ("rectangle", "ellipse"):
                 shape["rotation"] = anno.get("rotation", 0)

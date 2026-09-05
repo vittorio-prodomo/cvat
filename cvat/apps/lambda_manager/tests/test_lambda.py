@@ -879,6 +879,57 @@ class LambdaTestCases(_LambdaTestCaseBase):
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_api_v2_lambda_functions_preserves_detector_confidence(self):
+        response = self._post_request(
+            f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}",
+            self.admin,
+            data={
+                "task": self.main_task["id"],
+                "frame": 0,
+                "mapping": {"car": {"name": "car"}},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [shape.get("score") for shape in response.json()["shapes"]],
+            [0.9959098, 0.89535173, 0.59464583, 0.59464583],
+        )
+
+    def test_api_v2_lambda_functions_omits_invalid_detector_confidence(self):
+        values = [0, 1, "0.25", None, True, "not-a-number", "nan", -0.1, 1.1, 10**1000]
+
+        def invoke_with_confidence_cases(func, payload):
+            del func, payload
+            return [
+                {
+                    "label": "car",
+                    "type": "rectangle",
+                    "points": [index, 0, index + 1, 1],
+                    **({"confidence": value} if value is not None else {}),
+                }
+                for index, value in enumerate(values)
+            ]
+
+        with mock.patch(
+            "cvat.apps.lambda_manager.views.LambdaGateway.invoke",
+            side_effect=invoke_with_confidence_cases,
+        ):
+            response = self._post_request(
+                f"{LAMBDA_FUNCTIONS_PATH}/{id_function_detector}",
+                self.admin,
+                data={
+                    "task": self.main_task["id"],
+                    "frame": 0,
+                    "mapping": {"car": {"name": "car"}},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        shapes = response.json()["shapes"]
+        self.assertEqual([shape["score"] for shape in shapes[:3]], [0, 1, 0.25])
+        self.assertTrue(all("score" not in shape for shape in shapes[3:]))
+
     def test_api_v2_lambda_functions_create_detector_with_extra_params(self):
         """extra_params sent in the request body must appear verbatim in the Nuclio payload."""
         captured_payload = {}
