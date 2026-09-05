@@ -7,6 +7,12 @@ import {
     processDetectorShapes,
     type DetectorShape,
 } from '../../cvat-ui/src/utils/detector-postprocessing.ts';
+import {
+    DetectorPostprocessingClient,
+    type DetectorProcessingRequest,
+    type DetectorProcessingResponse,
+} from '../../cvat-ui/src/utils/detector-postprocessing-client.ts';
+import { LatestRequestGate } from '../../cvat-ui/src/utils/latest-request-gate.ts';
 
 const FRAME = { width: 20, height: 20 };
 
@@ -54,6 +60,287 @@ const process = (
 ): DetectorShape[] => processDetectorShapes(shapes, frame, {
     confidenceThreshold,
     postprocessing: { method, metric, threshold },
+});
+
+test('latest request gate accepts only the newest live request', () => {
+    const gate = new LatestRequestGate();
+    const first = gate.issue();
+    const second = gate.issue();
+    assert.equal(gate.isCurrent(first), false);
+    assert.equal(gate.isCurrent(second), true);
+    gate.dispose();
+    assert.equal(gate.isCurrent(second), false);
+});
+
+class FakeWorker {
+    public onmessage: ((event: MessageEvent) => void) | null = null;
+    public onerror: ((event: ErrorEvent) => void) | null = null;
+    public onmessageerror: ((event: MessageEvent) => void) | null = null;
+    public sent: DetectorProcessingRequest[] = [];
+    public terminated = false;
+
+    public postMessage(request: DetectorProcessingRequest): void {
+        this.sent.push(request);
+    }
+
+    public terminate(): void {
+        this.terminated = true;
+    }
+
+    public reply(response: DetectorProcessingResponse): void {
+        this.onmessage?.({ data: response } as MessageEvent);
+    }
+
+    public fail(message: string): void {
+        this.onerror?.({ message } as ErrorEvent);
+    }
+
+    public failMessage(): void {
+        this.onmessageerror?.({ data: null } as MessageEvent);
+    }
+}
+
+const detectorProcessingInput = (): Omit<DetectorProcessingRequest, 'id'> => ({
+    shapes: [rectangle(0, 1, 0.9, [0, 0, 2, 2])],
+    frame: { width: 3, height: 3 },
+    options: {
+        confidenceThreshold: 0.35,
+        postprocessing: { method: 'nms', metric: 'ios', threshold: 0.7 },
+    },
+});
+
+test('worker posts exactly one success or error response for each request', async () => {
+    const responses: DetectorProcessingResponse[] = [];
+    const workerScope: {
+        onmessage: ((event: MessageEvent<DetectorProcessingRequest>) => void) | null;
+        postMessage: (response: DetectorProcessingResponse) => void;
+    } = {
+        onmessage: null,
+        postMessage: (response): void => {
+            responses.push(response);
+        },
+    };
+    Object.defineProperty(globalThis, 'self', { configurable: true, value: workerScope });
+    try {
+        await import('../../cvat-ui/src/utils/detector-postprocessing.worker.ts');
+        const request: DetectorProcessingRequest = {
+            id: 1,
+            shapes: [rectangle(0, 1, 0.9, [0, 0, 2, 2])],
+            frame: { width: 3, height: 3 },
+            options: {
+                confidenceThreshold: 0.35,
+                postprocessing: { method: 'nms', metric: 'ios', threshold: 0.7 },
+            },
+        };
+
+        workerScope.onmessage?.({ data: request } as MessageEvent<DetectorProcessingRequest>);
+        assert.equal(responses.length, 1);
+        assert.deepEqual(responses[0], { id: 1, shapes: request.shapes });
+
+        responses.length = 0;
+        workerScope.onmessage?.({
+            data: { ...request, id: 2, frame: { width: 0, height: 3 } },
+        } as MessageEvent<DetectorProcessingRequest>);
+        assert.equal(responses.length, 1);
+        assert.equal(responses[0].id, 2);
+        assert.match('error' in responses[0] ? responses[0].error : '', /frame/i);
+    } finally {
+        Reflect.deleteProperty(globalThis, 'self');
+    }
+});
+
+test('client ignores stale output, resolves disposal, and retries a worker error', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const request: Omit<DetectorProcessingRequest, 'id'> = {
+        shapes: [rectangle(0, 1, 0.9, [0, 0, 2, 2])],
+        frame: { width: 3, height: 3 },
+        options: {
+            confidenceThreshold: 0.35,
+            postprocessing: { method: 'nms', metric: 'ios', threshold: 0.7 },
+        },
+    };
+
+    const first = client.process(request.shapes, request.frame, request.options);
+    const firstID = workers[0].sent[0].id;
+    const second = client.process(request.shapes, request.frame, request.options);
+    const secondID = workers[0].sent[1].id;
+    assert.equal(await first, null);
+    workers[0].reply({ id: firstID, shapes: [] });
+    workers[0].reply({ id: secondID, shapes: request.shapes });
+    assert.deepEqual(await second, request.shapes);
+
+    const failed = client.process(request.shapes, request.frame, request.options);
+    workers[0].fail('worker crashed');
+    await assert.rejects(failed, /worker crashed/i);
+    const retried = client.retry();
+    const retryID = workers[1].sent[0].id;
+    workers[1].reply({ id: retryID, shapes: [] });
+    assert.deepEqual(await retried, []);
+
+    const pending = client.process(request.shapes, request.frame, request.options);
+    client.dispose();
+    assert.equal(await pending, null);
+    assert.equal(workers[1].terminated, true);
+});
+
+test('worker error responses retain unmodified input and ignore stale callbacks after retry', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+    const snapshot = structuredClone(input);
+    const failed = client.process(input.shapes, input.frame, input.options);
+    const failedRequest = workers[0].sent[0];
+    const staleMessage = workers[0].onmessage;
+    const staleError = workers[0].onerror;
+    workers[0].reply({ id: failedRequest.id, error: 'invalid detector geometry' });
+
+    await assert.rejects(failed, /invalid detector geometry/i);
+    assert.equal(workers[0].terminated, true);
+    assert.deepEqual(input, snapshot);
+
+    const retried = client.retry();
+    const retriedRequest = workers[1].sent[0];
+    assert.ok(retriedRequest.id > failedRequest.id);
+    assert.equal(retriedRequest.shapes, input.shapes);
+    assert.equal(retriedRequest.frame, input.frame);
+    assert.equal(retriedRequest.options, input.options);
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+
+    staleMessage?.({
+        data: { id: retriedRequest.id, shapes: [rectangle(9, 1, 0.1, [0, 0, 1, 1])] },
+    } as MessageEvent<DetectorProcessingResponse>);
+    staleError?.({ message: 'late failure' } as ErrorEvent);
+    workers[1].reply({ id: retriedRequest.id, shapes: input.shapes });
+    assert.deepEqual(await retried, input.shapes);
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+    client.dispose();
+});
+
+test('messageerror rejects current work and disposal settles its retry', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+    const failed = client.process(input.shapes, input.frame, input.options);
+    workers[0].failMessage();
+
+    await assert.rejects(failed, /read detector postprocessing worker response/i);
+    assert.equal(workers[0].terminated, true);
+    const retried = client.retry();
+    assert.equal(workers.length, 2);
+    client.dispose();
+    assert.equal(await retried, null);
+    assert.equal(workers[1].terminated, true);
+    assert.equal(await client.retry(), null);
+});
+
+test('retry is eligible only after a current request fails', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+    const pending = client.process(input.shapes, input.frame, input.options);
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+    workers[0].reply({ id: workers[0].sent[0].id, shapes: [] });
+    assert.deepEqual(await pending, []);
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+
+    workers[0].fail('idle worker failure');
+    assert.equal(workers[0].terminated, true);
+    await assert.rejects(client.retry(), /no failed.*retry/i);
+    const next = client.process(input.shapes, input.frame, input.options);
+    assert.equal(workers.length, 2);
+    workers[1].reply({ id: workers[1].sent[0].id, shapes: input.shapes });
+    assert.deepEqual(await next, input.shapes);
+    client.dispose();
+    assert.equal(await client.process(input.shapes, input.frame, input.options), null);
+});
+
+test('startup factory failure rejects current work and retry recreates the worker', async () => {
+    const workers: FakeWorker[] = [];
+    let failStartup = true;
+    const client = new DetectorPostprocessingClient(() => {
+        if (failStartup) {
+            failStartup = false;
+            throw new Error('startup exploded');
+        }
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+
+    await assert.rejects(
+        client.process(input.shapes, input.frame, input.options),
+        /start detector postprocessing worker.*startup exploded/i,
+    );
+    const retried = client.retry();
+    assert.equal(workers.length, 1);
+    assert.equal(workers[0].sent[0].shapes, input.shapes);
+    assert.equal(workers[0].sent[0].options, input.options);
+    workers[0].reply({ id: workers[0].sent[0].id, shapes: [] });
+    assert.deepEqual(await retried, []);
+    client.dispose();
+});
+
+test('synchronous postMessage failure rejects current work without leaving a pending promise', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        if (!workers.length) {
+            worker.postMessage = (): void => {
+                throw new Error('send exploded');
+            };
+        }
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+
+    await assert.rejects(
+        client.process(input.shapes, input.frame, input.options),
+        /send detector postprocessing request.*send exploded/i,
+    );
+    assert.equal(workers[0].terminated, true);
+    const retried = client.retry();
+    workers[1].reply({ id: workers[1].sent[0].id, shapes: [] });
+    assert.deepEqual(await retried, []);
+    client.dispose();
+});
+
+test('malformed current worker responses reject instead of throwing or hanging', async () => {
+    const workers: FakeWorker[] = [];
+    const client = new DetectorPostprocessingClient(() => {
+        const worker = new FakeWorker();
+        workers.push(worker);
+        return worker;
+    });
+    const input = detectorProcessingInput();
+    const pending = client.process(input.shapes, input.frame, input.options);
+
+    assert.doesNotThrow(() => {
+        workers[0].reply(undefined as unknown as DetectorProcessingResponse);
+    });
+    await assert.rejects(pending, /invalid detector postprocessing worker response/i);
+    assert.equal(workers[0].terminated, true);
+    client.dispose();
 });
 
 test('computes exact IoU and IoS for rectangle overlap cases', () => {
