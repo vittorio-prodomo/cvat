@@ -2071,6 +2071,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         return (
             <DetectorRunner
                 withCleanup={false}
+                enableInteractiveOptions
                 loading={this.state.fetching}
                 models={detectors}
                 labels={labels}

@@ -119,6 +119,35 @@
     }
 }
 
+.cvat-detector-runner-threshold-wrapper {
+    .ant-row {
+        gap: $grid-unit-size * 2;
+    }
+}
+
+.cvat-detector-postprocessing-wrapper {
+    .cvat-detector-postprocessing-row {
+        margin-top: $grid-unit-size;
+
+        .ant-col {
+            display: flex;
+            flex-direction: column;
+            gap: $grid-unit-size * 0.5;
+        }
+    }
+
+    .cvat-detector-postprocessing-method,
+    .cvat-detector-postprocessing-metric,
+    .cvat-detector-postprocessing-threshold {
+        width: 100%;
+    }
+
+    .cvat-detector-postprocessing-error {
+        display: block;
+        margin-top: $grid-unit-size * 0.5;
+    }
+}
+
 .cvat-automatic-annotation-region-of-interest-container {
     .cvat-correct-region-of-interest-value,
     .cvat-errored-region-of-interest-value {
