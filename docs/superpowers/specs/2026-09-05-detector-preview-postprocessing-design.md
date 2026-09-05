@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-05
 
-**Status:** Design approved in conversation; awaiting written-spec review
+**Status:** Approved
 
 **Scope:** Interactive 2D detector runs in a CVAT job, plus shared detector-confidence conversion and label-attribute mapping fixes
 
@@ -78,7 +78,9 @@ The denominator is the number of mapped shapes returned at the `0.10` inference 
 
 **Done** creates only the displayed shapes in one annotation-creation operation. **Cancel**, closing AI Tools, selecting a different detector, changing workspace, or navigating away from the frame discards the preview. Temporary preview shapes never enter saved annotations or undo history before **Done**.
 
-If inference returns no mapped shapes, CVAT reports that no detections were found and does not enter preview mode.
+Tags returned alongside previewed shapes are held with the preview and committed unchanged on **Done**; **Cancel** discards them with the shapes. A tag-only detector response follows the legacy immediate path because tags do not participate in shape confidence preview or overlap postprocessing.
+
+If inference returns neither mapped shapes nor pass-through tags, CVAT reports that no detections were found and does not enter preview mode.
 
 ## Independent behavior matrix
 
@@ -96,12 +98,12 @@ If inference returns no mapped shapes, CVAT reports that no detections were foun
 1. Validate the detector form and label mapping.
 2. Invoke the detector once with a confidence threshold of `0.10` and the existing ROI, mask-conversion, mapping, and extra-parameter values.
 3. Convert and map the response while preserving valid detector confidence as native `score`.
-4. Retain an immutable raw result collection scoped to the request and frame.
+4. Retain an immutable raw shape collection and any pass-through tags, scoped to the request and frame.
 5. Filter scored results against the current slider value. Always retain results without a valid confidence.
 6. Apply the selected postprocessing method to eligible filtered results.
 7. Render the derived collection through the temporary canvas interaction layer.
 8. Repeat steps 5-7 when the slider changes, without invoking the detector again.
-9. On **Done**, create the latest displayed collection. On cancellation, discard both raw and derived collections.
+9. On **Done**, create the latest displayed shapes plus pass-through tags. On cancellation, discard the raw shapes, derived shapes, and pending tags.
 
 ### Confidence preview disabled
 
