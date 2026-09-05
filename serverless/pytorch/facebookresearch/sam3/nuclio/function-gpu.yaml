@@ -9,7 +9,20 @@ metadata:
     min_pos_points: 0
     min_neg_points: 0
     startswith_box_optional: true
-    help_message: The interactor allows prompt-based segmentation with Segment Anything 3 using positive and negative points and an optional bounding box.
+    extra_params_schema: |
+      [
+        {
+          "name": "text_prompt",
+          "type": "text",
+          "label": "Text prompt",
+          "description": "A short description of the objects to find",
+          "default": "",
+          "max_length": 256,
+          "supports_mask_refinement": true,
+          "supports_concept_box": true
+        }
+      ]
+    help_message: Use Single object for points and an optional starting box. Use Find similar objects with text, one positive exemplar box, or both; then select a returned mask for point refinement.
 
 spec:
   description: Interactive object segmentation with Segment Anything 3

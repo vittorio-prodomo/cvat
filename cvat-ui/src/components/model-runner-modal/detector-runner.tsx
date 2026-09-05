@@ -20,6 +20,7 @@ import ModelExtraParamsForm, {
     ModelExtraParamSchemaItem,
 } from 'components/common/model-extra-params-form';
 import { clamp } from 'utils/math';
+import primaryActionOnEnter from 'utils/primary-action-enter';
 import {
     MLModel, ModelKind, DimensionType, Label, LabelType,
 } from 'cvat-core-wrapper';
@@ -38,6 +39,7 @@ export type RegionOfInterest = NonNullable<AnnotateTaskRequestBody['roi']> | nul
 
 interface Props {
     withCleanup: boolean;
+    loading?: boolean;
     models: MLModel[];
     labels: Label[];
     dimension: DimensionType;
@@ -60,7 +62,7 @@ export interface AnnotateTaskRequestBody {
 
 function DetectorRunner(props: Props): JSX.Element {
     const {
-        models, withCleanup, labels, dimension, runInference,
+        models, withCleanup, labels, dimension, runInference, loading = false,
         frameWidth, frameHeight, canvasInstance, onRegionOfInterestChange,
     } = props;
 
@@ -120,7 +122,7 @@ function DetectorRunner(props: Props): JSX.Element {
     }, [regionOfInterest]);
 
     return (
-        <div className='cvat-run-model-content'>
+        <div className='cvat-run-model-content' role='presentation' onKeyDown={primaryActionOnEnter}>
             <Row align='middle'>
                 <Col span={4}>Model:</Col>
                 <Col span={20}>
@@ -265,10 +267,12 @@ function DetectorRunner(props: Props): JSX.Element {
                 <Col>
                     <Button
                         className='cvat-inference-run-button'
-                        disabled={!buttonEnabled}
+                        data-primary-action='true'
+                        disabled={!buttonEnabled || loading}
+                        loading={loading}
                         type='primary'
                         onClick={() => {
-                            if (!model) return;
+                            if (!model || loading) return;
                             const serverMapping = convertMappingToServer(mapping);
                             if (model.kind === ModelKind.DETECTOR) {
                                 const nonNullExtraParams = Object.fromEntries(

@@ -12,6 +12,7 @@ function makeInteractorModel({
     minPosPoints = 0,
     minNegPoints = 0,
     startWithBoxOptional = false,
+    extraParamsSchema = [],
 }) {
     return {
         id,
@@ -24,6 +25,7 @@ function makeInteractorModel({
         min_neg_points: minNegPoints,
         startswith_box: startWithBox,
         startswith_box_optional: startWithBoxOptional,
+        extra_params_schema: extraParamsSchema,
     };
 }
 
@@ -195,15 +197,15 @@ function openInteractorsWithModels(models, alias) {
     });
 }
 
-function selectInteractor(interactorID) {
+function selectInteractor(interactorId) {
     cy.window().then((win) => {
         const toolsControlComponent = requireToolsControlComponent(win);
-        toolsControlComponent.setActiveInteractor(interactorID);
+        toolsControlComponent.setActiveInteractor(interactorId);
     });
     cy.window().should((win) => {
         const toolsControlComponent = requireToolsControlComponent(win);
         const { activeInteractor } = toolsControlComponent.state;
-        expect(activeInteractor && activeInteractor.id).to.equal(interactorID);
+        expect(activeInteractor && activeInteractor.id).to.equal(interactorId);
     });
 }
 
@@ -234,13 +236,64 @@ function startInteraction() {
     cy.get('.cvat-tools-interact-button').should('be.visible').click();
 }
 
+function measureToolsLayout() {
+    return cy.get('.cvat-tools-control-popover')
+        .filter(':visible')
+        .first()
+        .find('.cvat-tools-control-popover-content')
+        .should('be.visible')
+        .then(($content) => {
+            const content = $content[0];
+            const roi = content.querySelector('.cvat-automatic-annotation-region-of-interest-container');
+            const inputs = ['xtl', 'ytl', 'width', 'height'].map((name) => {
+                const input = roi && roi.querySelector(`input[name="${name}"]`);
+                return input && (input.closest('.ant-input-number') || input);
+            });
+            const buttons = roi ? Array.from(roi.querySelectorAll('button')) : [];
+            const clearButton = buttons.find((buttonElement) => buttonElement.textContent.trim() === 'Clear');
+            const drawButton = buttons.find((buttonElement) => buttonElement !== clearButton);
+            const controls = [...inputs, drawButton, clearButton];
+
+            expect(roi, 'ROI controls').to.exist;
+            controls.forEach((control) => expect(control, 'ROI row control').to.exist);
+            const [firstTop] = controls.map((control) => control.getBoundingClientRect().top);
+            controls.forEach((control) => {
+                expect(Math.abs(control.getBoundingClientRect().top - firstTop)).to.be.at.most(2);
+            });
+
+            const rect = content.getBoundingClientRect();
+            return {
+                width: rect.width,
+                height: rect.height,
+                clientWidth: content.clientWidth,
+                scrollWidth: content.scrollWidth,
+            };
+        });
+}
+
 context('Crop instance segmentation interactor', () => {
     const taskName = 'Multiclass crop interactor task';
     const labelNames = ['car', 'person', 'bicycle'];
     const serverFiles = ['images/image_1.jpg', 'images/image_2.jpg', 'images/image_3.jpg'];
-    const envTaskID = Number.parseInt(Cypress.env('taskID'), 10);
-    const envJobID = Number.parseInt(Cypress.env('jobID'), 10);
-    const useExistingJob = Number.isInteger(envTaskID) && Number.isInteger(envJobID);
+    const envTaskId = Number.parseInt(Cypress.env('taskID'), 10);
+    const envJobId = Number.parseInt(Cypress.env('jobID'), 10);
+    const useExistingJob = Number.isInteger(envTaskId) && Number.isInteger(envJobId);
+    const fallbackContractOnly = Cypress.env('fallbackContractOnly') === true;
+    const scenarios = fallbackContractOnly ? describe.skip : describe;
+    let fallbackCreateTaskCalls = 0;
+    let fallbackDeleteTaskCalls = 0;
+
+    if (fallbackContractOnly) {
+        Cypress.Commands.overwrite('headlessCreateTask', () => {
+            fallbackCreateTaskCalls++;
+            return cy.wrap({ taskId: 166, jobIds: [182] });
+        });
+        Cypress.Commands.overwrite('headlessDeleteTask', (_originalCommand, taskId) => {
+            expect(taskId).to.equal(166);
+            fallbackDeleteTaskCalls++;
+            return cy.wrap(null);
+        });
+    }
 
     const mappedCropInteractor = makeInteractorModel({
         id: 'test-crop-interactor',
@@ -259,6 +312,30 @@ context('Crop instance segmentation interactor', () => {
         startWithBox: false,
         minPosPoints: 1,
     });
+    const conceptInteractor = makeInteractorModel({
+        id: 'test-sam3-concept-interactor',
+        name: 'Mocked concept-capable SAM3 interactor',
+        labels: [],
+        startWithBox: false,
+        startWithBoxOptional: true,
+        extraParamsSchema: [{
+            name: 'text_prompt',
+            type: 'text',
+            label: 'Text prompt',
+            default: '',
+            max_length: 256,
+            supports_mask_refinement: true,
+            supports_concept_box: true,
+        }],
+    });
+    const compactOptionalBoxInteractor = makeInteractorModel({
+        id: 'test-compact-optional-box-interactor',
+        name: 'Mocked compact optional-box interactor',
+        labels: [],
+        startWithBox: false,
+        startWithBoxOptional: true,
+        minPosPoints: 1,
+    });
     const interactorA = makeInteractorModel({
         id: 'interactor-a',
         name: 'Interactor A',
@@ -270,12 +347,21 @@ context('Crop instance segmentation interactor', () => {
         labels: ['car', 'person'],
     });
 
-    let createdTaskID = null;
+    let createdTaskId = null;
 
     before(() => {
+        if (fallbackContractOnly) {
+            cy.intercept('POST', '**/api/tasks**', () => {
+                throw new Error('Fallback contract regression attempted to create a real task');
+            });
+            cy.intercept('DELETE', '**/api/tasks**', () => {
+                throw new Error('Fallback contract regression attempted to delete a real task');
+            });
+        }
+
         cy.visit('/');
         cy.headlessLogin({
-            nextURL: useExistingJob ? `/tasks/${envTaskID}/jobs/${envJobID}` : '/tasks',
+            nextURL: useExistingJob ? `/tasks/${envTaskId}/jobs/${envJobId}` : '/tasks',
         });
 
         if (useExistingJob) {
@@ -296,21 +382,33 @@ context('Crop instance segmentation interactor', () => {
             use_cache: true,
             sorting_method: 'lexicographical',
         }).then((taskResponse) => {
-            createdTaskID = taskResponse.taskID;
-            cy.visit(`/tasks/${taskResponse.taskID}/jobs/${taskResponse.jobIDs[0]}`);
+            createdTaskId = taskResponse.taskId;
+            cy.visit(`/tasks/${taskResponse.taskId}/jobs/${taskResponse.jobIds[0]}`);
             cy.get('.cvat-canvas-container').should('exist');
         });
     });
 
     after(() => {
-        if (createdTaskID !== null) {
-            cy.headlessDeleteTask(createdTaskID);
+        if (createdTaskId !== null) {
+            cy.headlessDeleteTask(createdTaskId).then(() => {
+                if (fallbackContractOnly) {
+                    expect(fallbackDeleteTaskCalls).to.equal(1);
+                }
+            });
         }
 
         cy.headlessLogout();
     });
 
-    describe('Mapped multiclass crop interactor', () => {
+    if (fallbackContractOnly) {
+        it('Uses the shared task response contract without task API writes', () => {
+            expect(fallbackCreateTaskCalls).to.equal(1);
+            cy.location('pathname').should('eq', '/tasks/166/jobs/182');
+            cy.get('.cvat-canvas-container').should('exist');
+        });
+    }
+
+    scenarios('Mapped multiclass crop interactor', () => {
         it('Should show label mapper for mapped multiclass interactors', () => {
             openInteractorsWithModels([mappedCropInteractor], 'getLambdaFunctions');
             selectInteractor(mappedCropInteractor.id);
@@ -437,7 +535,7 @@ context('Crop instance segmentation interactor', () => {
         });
     });
 
-    describe('Edge case: unresolvable labels', () => {
+    scenarios('Edge case: unresolvable labels', () => {
         it('Should skip shapes with unresolvable labels and show warning', () => {
             openInteractorsWithModels([invalidLabelInteractor], 'getInvalidLabelFunctions');
             selectInteractor(invalidLabelInteractor.id);
@@ -466,7 +564,7 @@ context('Crop instance segmentation interactor', () => {
         });
     });
 
-    describe('Legacy SAM3 fallback behavior', () => {
+    scenarios('Legacy SAM3 fallback behavior', () => {
         it('Should use active label for interactors without per-shape labels', () => {
             openInteractorsWithModels([legacyInteractor], 'getLegacyFunctions');
             selectInteractor(legacyInteractor.id);
@@ -494,7 +592,43 @@ context('Crop instance segmentation interactor', () => {
         });
     });
 
-    describe('Fast interactor switching', () => {
+    scenarios('AI Tools interactor layout', () => {
+        it('Keeps concept modes stable, overflow-free, and the ROI controls on one row', () => {
+            cy.viewport(1280, 900);
+            openInteractorsWithModels([
+                conceptInteractor,
+                compactOptionalBoxInteractor,
+            ], 'getConceptLayoutFunctions');
+            selectInteractor(conceptInteractor.id);
+
+            cy.get('.cvat-tools-interactor-mode-controls')
+                .should('have.class', 'cvat-tools-interactor-mode-controls-concept-capable');
+
+            let singleObjectLayout;
+            measureToolsLayout().then((layout) => {
+                singleObjectLayout = layout;
+                expect(layout.scrollWidth).to.be.at.most(layout.clientWidth);
+            });
+
+            cy.contains('[aria-label="SAM3 task mode"] .ant-radio-button-wrapper', 'Find similar objects')
+                .click();
+            cy.get('.cvat-tools-interactor-concept-controls').should('be.visible');
+            cy.get('.cvat-tools-interactor-mode-controls')
+                .should('have.class', 'cvat-tools-interactor-mode-controls-concept-capable');
+
+            measureToolsLayout().then((conceptLayout) => {
+                expect(conceptLayout.scrollWidth).to.be.at.most(conceptLayout.clientWidth);
+                expect(Math.abs(conceptLayout.width - singleObjectLayout.width)).to.be.at.most(2);
+                expect(Math.abs(conceptLayout.height - singleObjectLayout.height)).to.be.at.most(2);
+            });
+
+            selectInteractor(compactOptionalBoxInteractor.id);
+            cy.get('.cvat-tools-interactor-mode-controls')
+                .should('not.have.class', 'cvat-tools-interactor-mode-controls-concept-capable');
+        });
+    });
+
+    scenarios('Fast interactor switching', () => {
         it('Should not send stale mapping when switching interactors', () => {
             openInteractorsWithModels([interactorA, interactorB], 'getSwitchingFunctions');
 

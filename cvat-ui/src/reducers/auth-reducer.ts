@@ -8,6 +8,7 @@ import { AuthActions, AuthActionTypes } from 'actions/auth-actions';
 import { AuthState } from '.';
 
 const defaultState: AuthState = {
+    sessionVersion: 0,
     initialized: false,
     fetching: false,
     user: null,
@@ -31,6 +32,8 @@ export default function (state = defaultState, action: AuthActions | BoundariesA
         case AuthActionTypes.AUTHENTICATED_SUCCESS:
             return {
                 ...state,
+                sessionVersion: state.user?.id === action.payload.user?.id ?
+                    state.sessionVersion : state.sessionVersion + 1,
                 initialized: true,
                 fetching: false,
                 user: action.payload.user,
@@ -49,6 +52,7 @@ export default function (state = defaultState, action: AuthActions | BoundariesA
         case AuthActionTypes.LOGIN_SUCCESS:
             return {
                 ...state,
+                sessionVersion: state.sessionVersion + 1,
                 fetching: false,
                 user: action.payload.user,
                 hasEmailVerificationBeenSent: false,
@@ -69,8 +73,14 @@ export default function (state = defaultState, action: AuthActions | BoundariesA
         case AuthActionTypes.LOGOUT_SUCCESS:
             return {
                 ...state,
+                sessionVersion: state.sessionVersion + 1,
                 fetching: false,
                 user: null,
+            };
+        case AuthActionTypes.LOGOUT_FAILED:
+            return {
+                ...state,
+                fetching: false,
             };
         case AuthActionTypes.REGISTER:
             return {
@@ -216,7 +226,7 @@ export default function (state = defaultState, action: AuthActions | BoundariesA
                 },
             };
         case BoundariesActionTypes.RESET_AFTER_ERROR: {
-            return { ...defaultState };
+            return { ...defaultState, sessionVersion: state.sessionVersion + 1 };
         }
         default:
             return state;

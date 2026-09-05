@@ -22,6 +22,7 @@ import { Row, Col } from 'antd/lib/grid';
 import notification from 'antd/lib/notification';
 import message from 'antd/lib/message';
 import Switch from 'antd/lib/switch';
+import Radio from 'antd/lib/radio';
 import lodash from 'lodash';
 
 import { AIToolsIcon } from 'icons';
@@ -31,6 +32,8 @@ import {
     MinimalShape, InteractorResults, TrackerResults, DimensionType,
 } from 'cvat-core-wrapper';
 import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
+import primaryActionOnEnter from 'utils/primary-action-enter';
+import MaskMorphologyClient from 'utils/mask-morphology-client';
 import {
     CombinedState, ActiveControl, ToolsBlockerState, PluginComponent,
 } from 'reducers';
@@ -61,6 +64,8 @@ import { ServerMapping } from 'components/model-runner-modal/label-mapping-utils
 import InteractorLabelMapper from './interactor-label-mapper';
 import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
+import TextMaskRefinement from './text-mask-refinement';
+import MaskMorphologyControl from './mask-morphology-control';
 
 interface StateToProps {
     canvasInstance: Canvas;
@@ -179,6 +184,10 @@ interface State {
     interactorMapping: ServerMapping | null;
     interactorExtraParams: Record<string, unknown>;
     interactorExtraParamsTouched: Record<string, boolean>;
+    interactorPromptMode: 'single_object' | 'concept';
+    conceptUsesBox: boolean;
+    refiningMask: number | null;
+    maskAdjustmentRevision: number;
     allowROI: boolean;
     interactorRegionOfInterest: RegionOfInterest;
     detectorRegionOfInterest: RegionOfInterest;
@@ -189,6 +198,20 @@ type DetectorResults = Extract<
     Awaited<ReturnType<typeof core.lambda.call>>,
     { tags: unknown[]; shapes: unknown[]; tracks: unknown[] }
 >;
+
+interface InteractionRequest {
+    interactor: MLModel;
+    data: {
+        frame: number;
+        neg_points: number[][];
+        pos_points: number[][];
+        obj_bbox: number[][];
+        roi?: NonNullable<RegionOfInterest>;
+    };
+    mapping: ServerMapping | null;
+    extraParams: Record<string, unknown>;
+    refinement?: { index: number; revision: number };
+}
 
 function trackedRectangleMapper(shape: MinimalShape): MinimalShape {
     return {
@@ -246,21 +269,25 @@ function registerPlugin(): (callback: null | (() => void)) => void {
 const onRemoveAnnotations = registerPlugin();
 
 export class ToolsControlComponent extends React.PureComponent<Props, State> {
+    private maskAdjustmentClient: MaskMorphologyClient | null = null;
+    private maskAdjustments = new Map<number, {
+        value: number;
+        source: ToolsControlComponent['interaction']['latestResponse'][number];
+        preview: ToolsControlComponent['interaction']['latestResponse'][number];
+        pending: boolean;
+    }>();
+    private refinementRevision = 0;
+    private refinement: { index: number; seed: ToolsControlComponent['interaction']['latestResponse'][number] } | null = null;
+    // Keep N/repeat aligned with the canvas command saved by onInteractionStart,
+    // even when the inactive panel has since been edited.
+    private lastInteractorSetup: Pick<State,
+    'activeInteractor' | 'activeLabelID' | 'interactorPromptMode' | 'conceptUsesBox' | 'interactorExtraParams' |
+    'interactorExtraParamsTouched' | 'interactorMapping' | 'interactorRegionOfInterest'> | null = null;
+
     private interaction: {
         id: string | null;
         isAborted: boolean;
-        latestPostponedRequest: {
-            interactor: MLModel;
-            data: {
-                frame: number;
-                neg_points: number[][];
-                pos_points: number[][];
-                obj_bbox: number[][];
-                roi?: NonNullable<RegionOfInterest>;
-            };
-            mapping: ServerMapping | null;
-            extraParams: Record<string, unknown>;
-        } | null;
+        latestPostponedRequest: InteractionRequest | null;
         latestResponse: {
             rle: Int32Array;
             points: [number, number][];
@@ -268,19 +295,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             approximatedPoints: [number, number][];
             confidence: number;
             labelName: string | null;
+            empty?: boolean;
         }[];
-        latestRequest: null | {
-            interactor: MLModel;
-            data: {
-                frame: number;
-                neg_points: number[][];
-                pos_points: number[][];
-                obj_bbox: number[][];
-                roi?: NonNullable<RegionOfInterest>;
-            };
-            mapping: ServerMapping | null;
-            extraParams: Record<string, unknown>;
-        } | null;
+        latestRequest: InteractionRequest | null;
         closeFetchingMessage: (() => void) | null;
         noShapesMessage: (() => void) | null;
     };
@@ -313,6 +330,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             interactorMapping: null,
             interactorExtraParams,
             interactorExtraParamsTouched: {},
+            interactorPromptMode: 'single_object',
+            conceptUsesBox: false,
+            refiningMask: null,
+            maskAdjustmentRevision: 0,
             allowROI: props.jobInstance.dimension === DimensionType.DIMENSION_2D,
             interactorRegionOfInterest: null,
             detectorRegionOfInterest: null,
@@ -352,6 +373,13 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             approxPolyAccuracy, mode, activeTracker, thresholdValue,
         } = this.state;
 
+        if (isActivated && mode === 'interaction' && this.state.interactorPromptMode === 'concept' &&
+            (prevProps.frame !== this.props.frame || prevProps.jobInstance.id !== jobInstance.id)) {
+            this.cancelListener();
+            this.props.canvasInstance.cancel();
+            return;
+        }
+
         if (prevProps.states !== states || prevState.activeTracker !== activeTracker) {
             this.setState({
                 portals: this.collectTrackerPortals(),
@@ -367,6 +395,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         }
 
         if (prevProps.isActivated && !isActivated) {
+            this.cancelListener();
             window.removeEventListener('contextmenu', this.contextmenuDisabler);
 
             // hide interaction messages if exists
@@ -377,6 +406,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 }
             }
         } else if (!prevProps.isActivated && isActivated) {
+            this.clearMaskAdjustments();
+            this.refinement = null;
+            this.refinementRevision++;
             // reset flags when start interaction/tracking
             this.interaction = {
                 id: null,
@@ -388,10 +420,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 noShapesMessage: null,
             };
 
-            this.setState({
+            this.setState((state) => ({
+                ...state,
+                ...(mode === 'interaction' ? this.lastInteractorSetup : {}),
                 approxPolyAccuracy: defaultApproxPolyAccuracy,
                 interactorResponseReceived: false,
                 showConfidenceControl: false,
+                refiningMask: null,
+            }), () => {
+                if (this.state.mode === 'interaction' && this.state.interactorPromptMode === 'concept' &&
+                    this.hasTextPrompting() &&
+                    !(this.state.conceptUsesBox && this.supportsConceptPrompting())) {
+                    // Activation resets the session above; enqueue only after that reset.
+                    this.onInteraction({ detail: { shapes: [] } } as unknown as Event);
+                }
             });
             window.addEventListener('contextmenu', this.contextmenuDisabler);
         }
@@ -413,6 +455,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         if (prevState.thresholdValue !== thresholdValue) {
             if (isActivated && mode === 'interaction') {
+                if (this.refinement && !this.visibleInteractionResults().some(({ index }) => (
+                    index === this.refinement?.index
+                ))) {
+                    this.finishRefinement();
+                }
                 this.drawIntermediateShapesOnCanvas();
             }
         }
@@ -422,6 +469,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 this.interaction.latestResponse.forEach(({ points }, idx) => {
                     const approximated = this.approximateResponsePoints(points);
                     this.interaction.latestResponse[idx].approximatedPoints = approximated;
+                });
+                this.maskAdjustments.forEach(({ preview }) => {
+                    preview.approximatedPoints = this.approximateResponsePoints(preview.points);
                 });
 
                 this.drawIntermediateShapesOnCanvas();
@@ -433,6 +483,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public componentWillUnmount(): void {
         const { canvasInstance } = this.props;
+        this.clearMaskAdjustments();
         onRemoveAnnotations(null);
         canvasInstance.html().removeEventListener('canvas.interacted', this.interactionListener);
         canvasInstance.html().removeEventListener('canvas.canceled', this.cancelListener);
@@ -532,12 +583,19 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private cancelListener = async (): Promise<void> => {
-        const { fetching } = this.state;
-        if (fetching) {
-            // user pressed ESC
-            this.setState({ fetching: false });
-            this.interaction.isAborted = true;
+        this.clearMaskAdjustments();
+        this.refinement = null;
+        this.refinementRevision++;
+        this.interaction.isAborted = true;
+        this.interaction.id = null;
+        this.interaction.latestRequest = null;
+        this.interaction.latestPostponedRequest = null;
+        this.interaction.latestResponse = [];
+        for (const callback of ['closeFetchingMessage', 'noShapesMessage'] as const) {
+            this.interaction[callback]?.();
+            this.interaction[callback] = null;
         }
+        this.setState({ fetching: false, interactorResponseReceived: false, refiningMask: null });
     };
 
     private runInteractionRequest = async (interactionId: string): Promise<void> => {
@@ -553,7 +611,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         }
 
         const {
-            interactor, data, mapping, extraParams,
+            interactor, data, mapping, extraParams, refinement,
         } = latestRequest;
         this.interaction.latestRequest = null;
 
@@ -580,10 +638,14 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     },
                 ) as InteractorResults;
 
-                if (this.interaction.id !== interactionId || this.interaction.isAborted) {
+                if (this.interaction.id !== interactionId || this.interaction.isAborted ||
+                    !this.props.isActivated || this.props.frame !== data.frame ||
+                    this.props.jobInstance.id !== jobInstance.id) {
                     // new interaction session or the session is aborted
                     return;
                 }
+
+                if (refinement && refinement.revision !== this.refinementRevision) return;
 
                 const latestResponse: ToolsControlComponent['interaction']['latestResponse'] = [];
                 let showConfidenceControl = false;
@@ -611,23 +673,46 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     });
                 }
 
-                this.interaction.latestResponse = latestResponse;
+                if (refinement) {
+                    const original = this.interaction.latestResponse[refinement.index];
+                    const replacement = latestResponse[0];
+                    this.interaction.latestResponse[refinement.index] = replacement ? {
+                        ...replacement, confidence: original.confidence, labelName: original.labelName,
+                    } : {
+                        ...original,
+                        empty: true,
+                        rle: new Int32Array(),
+                        points: [],
+                        contours: [],
+                        approximatedPoints: [],
+                    };
+                    showConfidenceControl = this.state.showConfidenceControl;
+                    const adjustment = this.maskAdjustments.get(refinement.index);
+                    if (adjustment) this.applyMaskAdjustment(refinement.index, adjustment.value);
+                } else {
+                    this.clearMaskAdjustments();
+                    this.interaction.latestResponse = latestResponse;
+                }
                 this.setState({
-                    interactorResponseReceived: !!latestResponse.length,
+                    interactorResponseReceived: !!this.interaction.latestResponse.length,
                     showConfidenceControl,
                 });
             } finally {
                 if (this.interaction.id === interactionId) {
                     this.interaction.closeFetchingMessage?.();
                     this.interaction.closeFetchingMessage = null;
+                    this.setState({ fetching: false }, () => {
+                        if (this.interaction.latestRequest) {
+                            setTimeout(() => this.runInteractionRequest(interactionId));
+                        }
+                    });
                 }
-
-                this.setState({ fetching: false });
             }
 
             this.drawIntermediateShapesOnCanvas();
-            setTimeout(() => this.runInteractionRequest(interactionId));
         } catch (error: any) {
+            if (this.interaction.id !== interactionId || this.interaction.isAborted) return;
+            if (refinement && refinement.revision !== this.refinementRevision) return;
             notification.error({
                 description: <CVATMarkdown>{error.message}</CVATMarkdown>,
                 message: 'Interaction error occurred',
@@ -640,7 +725,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const { frame, isActivated } = this.props;
         const {
             activeInteractor, interactorExtraParams, interactorMapping, interactorExtraParamsTouched,
-            interactorRegionOfInterest,
+            interactorRegionOfInterest, interactorPromptMode, conceptUsesBox,
         } = this.state;
 
         if (!isActivated) {
@@ -657,6 +742,31 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const posPoints = convertShapesForInteractor(shapes, 'points', 'positive');
         const negPoints = convertShapesForInteractor(shapes, 'points', 'negative');
 
+        const { refinement } = this;
+        if (refinement && !posPoints.length && !negPoints.length) {
+            this.invalidateRefinementRequests();
+            // The approximation setting may have changed while refining this seed.
+            refinement.seed.approximatedPoints = this.approximateResponsePoints(refinement.seed.points);
+            this.interaction.latestResponse[refinement.index] = refinement.seed;
+            const adjustment = this.maskAdjustments.get(refinement.index);
+            if (adjustment) this.applyMaskAdjustment(refinement.index, adjustment.value);
+            this.drawIntermediateShapesOnCanvas();
+            this.setState({ interactorResponseReceived: true });
+            return;
+        }
+
+        const conceptMode = interactorPromptMode === 'concept' && this.hasTextPrompting();
+        const conceptUsesExemplar = conceptMode && conceptUsesBox && this.supportsConceptPrompting();
+        if (conceptMode && !refinement) {
+            const positiveRectangles = shapes.filter((shape: InteractionResult) => (
+                shape.shapeType === 'rectangle' && shape.type === 'positive'
+            ));
+            if (posPoints.length || negPoints.length ||
+                (conceptUsesExemplar ? positiveRectangles.length !== 1 || boxes.length !== 2 : shapes.length > 0)) {
+                return;
+            }
+        }
+
         // Filter out null/undefined values and untouched schema defaults from extra params snapshot
         const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
         const schemaDefaults = new Map(
@@ -664,6 +774,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         );
         const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
             (acc, [key, value]) => {
+                if (key === 'text_prompt') {
+                    if (conceptMode && !refinement && typeof value === 'string' && value.trim()) {
+                        acc[key] = value.trim();
+                    }
+                    return acc;
+                }
                 if (value !== null && value !== undefined) {
                     // Include if touched OR if not equal to schema default
                     if (interactorExtraParamsTouched[key] || value !== schemaDefaults.get(key)) {
@@ -674,20 +790,38 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             },
             {} as Record<string, unknown>,
         );
-        this.interaction.latestRequest = {
+        if (conceptMode && this.supportsConceptPrompting() && !refinement) {
+            filteredExtraParams.prompt_mode = 'concept';
+        }
+        if (refinement) {
+            const seed = Array.from(refinement.seed.rle);
+            const [left, top] = interactorRegionOfInterest ?? [0, 0];
+            seed[seed.length - 4] -= left;
+            seed[seed.length - 3] -= top;
+            seed[seed.length - 2] -= left;
+            seed[seed.length - 1] -= top;
+            filteredExtraParams.refinement_mask = seed;
+        }
+        const request: InteractionRequest = {
             interactor,
             data: {
                 frame,
-                obj_bbox: boxes,
+                obj_bbox: refinement ? [] : boxes,
                 pos_points: posPoints,
                 neg_points: negPoints,
-                ...(interactorRegionOfInterest ? { roi: interactorRegionOfInterest } : {}),
+                ...(interactorRegionOfInterest ? { roi: lodash.cloneDeep(interactorRegionOfInterest) } : {}),
             },
-            mapping: interactorMapping,
-            extraParams: filteredExtraParams,
+            mapping: lodash.cloneDeep(interactorMapping),
+            extraParams: lodash.cloneDeep(filteredExtraParams),
+            ...(refinement ? { refinement: { index: refinement.index, revision: ++this.refinementRevision } } : {}),
         };
-
-        this.runInteractionRequest(this.interaction.id);
+        if (this.props.toolsBlockerState.algorithmsLocked) {
+            this.interaction.latestRequest = null;
+            this.interaction.latestPostponedRequest = request;
+        } else {
+            this.interaction.latestRequest = request;
+            this.runInteractionRequest(this.interaction.id);
+        }
     };
 
     private onTracking = async (e: Event): Promise<void> => {
@@ -753,7 +887,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private interactionListener = async (e: Event): Promise<void> => {
-        const { toolsBlockerState, isActivated, canvasInstance } = this.props;
+        const { isActivated, canvasInstance } = this.props;
         const { activeInteractor, mode, interactorRegionOfInterest } = this.state;
 
         if (!isActivated) {
@@ -765,16 +899,39 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 return;
             }
 
-            const { shapes, finished } = (e as CustomEvent<{ shapes: InteractionResult[], finished: boolean }>).detail;
+            const { shapes, finished, selectedShape } = (e as CustomEvent<{
+                shapes: InteractionResult[]; finished: boolean; selectedShape?: number;
+            }>).detail;
 
             if (finished) {
+                if (this.interaction.isAborted) return;
                 // make an object from current result
                 // do not make one more request
                 // prevent future requests if possible
                 this.interaction.isAborted = true;
                 this.interaction.latestRequest = null;
+                this.interaction.latestPostponedRequest = null;
                 this.constructFromLatestResponse();
             } else {
+                if (this.state.interactorPromptMode === 'concept' && this.hasTextPrompting()) {
+                    if (selectedShape !== undefined && !this.refinement) {
+                        this.selectRefinementMask(selectedShape);
+                    } else if (this.refinement) {
+                        this.onInteraction(e);
+                    } else if (this.state.conceptUsesBox && this.supportsConceptPrompting()) {
+                        const boxes = convertShapesForInteractor(shapes, 'rectangle', 'positive');
+                        const posPoints = convertShapesForInteractor(shapes, 'points', 'positive');
+                        const negPoints = convertShapesForInteractor(shapes, 'points', 'negative');
+                        const positiveRectangles = shapes.filter((shape: InteractionResult) => (
+                            shape.shapeType === 'rectangle' && shape.type === 'positive'
+                        ));
+                        if (positiveRectangles.length === 1 && boxes.length === 2 &&
+                            !posPoints.length && !negPoints.length) {
+                            this.onInteraction(e);
+                        }
+                    }
+                    return;
+                }
                 const isRectangleRequired = activeInteractor!.params.canvas.startWithBox === true;
                 const minPosPoints = activeInteractor!.params.canvas.minPosVertices ?? 0;
                 const minNegPoints = activeInteractor!.params.canvas.minNegVertices ?? 0;
@@ -796,9 +953,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     return;
                 }
 
-                // Only auto-switch to points if interactor expects points
-                // Box-only interactors should not switch to point mode
-                const expectsPoints = minPosPoints > 0 || minNegPoints > 0;
+                // An optional starting box also permits point refinement (SAM/SAM3),
+                // even when a box alone satisfies the minimum prompt requirements.
+                const expectsPoints = minPosPoints > 0 || minNegPoints > 0 ||
+                    activeInteractor.params.canvas.startWithBoxOptional === true;
 
                 if (expectsPoints && boxes.length > 0) {
                     // auto-switch to points when something is already drawn
@@ -816,51 +974,6 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
                 if (posPoints.length < minPosPoints || negPoints.length < minNegPoints) {
                     // there should be enough points to proceed
-                    return;
-                }
-
-                // request data is enough, but it is postponed
-                if (toolsBlockerState.algorithmsLocked) {
-                    // Ensure interaction id exists before postponing request
-                    if (!this.interaction.id) {
-                        this.interaction.id = lodash.uniqueId('interaction_');
-                    }
-
-                    // Snapshot the complete request with current interactor + params + mapping
-                    const { frame } = this.props;
-                    const { interactorExtraParams, interactorMapping, interactorExtraParamsTouched } = this.state;
-                    const interactor = activeInteractor as MLModel;
-
-                    // Filter out null/undefined values and untouched schema defaults from extra params snapshot
-                    const schema = interactor.extraParamsSchema as ModelExtraParamSchemaItem[] | undefined;
-                    const schemaDefaults = new Map(
-                        schema?.map((param) => [param.name, param.default]) ?? [],
-                    );
-                    const filteredExtraParams = Object.entries(interactorExtraParams).reduce(
-                        (acc, [key, value]) => {
-                            if (value !== null && value !== undefined) {
-                                // Include if touched OR if not equal to schema default
-                                if (interactorExtraParamsTouched[key] || value !== schemaDefaults.get(key)) {
-                                    acc[key] = value;
-                                }
-                            }
-                            return acc;
-                        },
-                        {} as Record<string, unknown>,
-                    );
-
-                    this.interaction.latestPostponedRequest = {
-                        interactor,
-                        data: {
-                            frame,
-                            obj_bbox: boxes,
-                            pos_points: posPoints,
-                            neg_points: negPoints,
-                            ...(interactorRegionOfInterest ? { roi: interactorRegionOfInterest } : {}),
-                        },
-                        mapping: interactorMapping,
-                        extraParams: filteredExtraParams,
-                    };
                     return;
                 }
 
@@ -898,6 +1011,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             interactorMapping: null,
             interactorExtraParams,
             interactorExtraParamsTouched: {},
+            interactorPromptMode: 'single_object',
+            conceptUsesBox: false,
         });
     };
 
@@ -908,13 +1023,168 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         });
     };
 
+    private hasTextPrompting(): boolean {
+        return !!this.state.activeInteractor?.extraParamsSchema?.some(
+            (param: ModelExtraParamSchemaItem) => param.name === 'text_prompt' && param.type === 'text',
+        );
+    }
+
+    private supportsConceptPrompting(): boolean {
+        return !!this.state.activeInteractor?.extraParamsSchema?.some(
+            (param: ModelExtraParamSchemaItem) => param.name === 'text_prompt' &&
+                param.type === 'text' && param.supports_concept_box === true,
+        );
+    }
+
+    private supportsMaskRefinement(): boolean {
+        const { activeInteractor, interactorPromptMode } = this.state;
+        return interactorPromptMode === 'concept' && this.hasTextPrompting() &&
+            !!activeInteractor?.extraParamsSchema?.some(
+                (param: ModelExtraParamSchemaItem) => param.name === 'text_prompt' &&
+                    param.type === 'text' && param.supports_mask_refinement === true,
+            );
+    }
+
+    private visibleInteractionResults(): {
+        result: ToolsControlComponent['interaction']['latestResponse'][number]; index: number;
+    }[] {
+        const { thresholdValue } = this.state;
+        // Keep raw masks available for selection/reset even when an adjustment
+        // or polygon approximation hides their preview. Drawing and Done filter
+        // the effective geometry after applying the selected mask's adjustment.
+        return this.interaction.latestResponse.map((result, index) => ({ result, index }))
+            .filter(({ result }) => !result.empty &&
+                (typeof result.confidence !== 'number' || result.confidence >= thresholdValue));
+    }
+
+    private invalidateRefinementRequests(): void {
+        this.refinementRevision++;
+        this.interaction.latestRequest = null;
+        this.interaction.latestPostponedRequest = null;
+    }
+
+    private clearMaskAdjustments(): void {
+        this.maskAdjustments.clear();
+        this.maskAdjustmentClient?.dispose();
+        this.maskAdjustmentClient = null;
+    }
+
+    private displayedMaskResult(
+        index: number, raw: ToolsControlComponent['interaction']['latestResponse'][number],
+    ): ToolsControlComponent['interaction']['latestResponse'][number] {
+        // While a new adjustment is being computed, keep the last confirmed
+        // preview. Done must always use the mask that is actually displayed.
+        return this.maskAdjustments.get(index)?.preview ?? raw;
+    }
+
+    private refreshMaskAdjustments(): void {
+        this.setState((state) => ({ maskAdjustmentRevision: state.maskAdjustmentRevision + 1 }));
+        this.drawIntermediateShapesOnCanvas();
+    }
+
+    private applyMaskAdjustment = async (index: number, value: number): Promise<void> => {
+        const source = this.interaction.latestResponse[index];
+        if (!source || !this.props.isActivated || this.interaction.isAborted ||
+            !Number.isInteger(value) || Math.abs(value) > 20) return;
+        if (value === 0) {
+            this.maskAdjustments.delete(index);
+            this.refreshMaskAdjustments();
+            return;
+        }
+
+        const entry = {
+            value,
+            source,
+            preview: this.maskAdjustments.get(index)?.preview ?? source,
+            pending: source.rle.length > 0,
+        };
+        this.maskAdjustments.set(index, entry);
+        if (!source.rle.length) entry.preview = source;
+        this.refreshMaskAdjustments();
+        if (!entry.pending) return;
+        const session = this.interaction.id;
+        const isCurrent = (): boolean => this.interaction.id === session &&
+            !this.interaction.isAborted && this.props.isActivated &&
+            this.maskAdjustments.get(index) === entry && this.interaction.latestResponse[index] === source;
+
+        try {
+            this.maskAdjustmentClient ??= new MaskMorphologyClient();
+            const bounds: [number, number, number, number] = this.state.interactorRegionOfInterest ??
+                [0, 0, this.props.frameData.width, this.props.frameData.height];
+            const rle = await this.maskAdjustmentClient.apply(source.rle, value, bounds);
+            if (!isCurrent()) return;
+            if (rle === null) {
+                entry.pending = false;
+                this.refreshMaskAdjustments();
+                return;
+            }
+            const contours = rle.length ? this.receiveContoursFromMask(rle) : [];
+            const points = contours.length ? this.receivePointsFromMask(contours) : [];
+            entry.preview = {
+                ...source,
+                rle,
+                contours,
+                points,
+                empty: !rle.length,
+                approximatedPoints: this.approximateResponsePoints(points),
+            };
+            entry.pending = false;
+            this.refreshMaskAdjustments();
+        } catch {
+            if (!isCurrent()) return;
+            this.maskAdjustments.delete(index);
+            this.refreshMaskAdjustments();
+            notification.error({
+                message: 'Could not adjust mask',
+                description: 'The latest SAM3 mask has been restored. Try the adjustment again.',
+            });
+        }
+    };
+
+    private selectRefinementMask = (index: number): void => {
+        if (!this.props.isActivated || this.interaction.isAborted || !this.supportsMaskRefinement() ||
+            this.refinement?.index === index) return;
+        const entry = this.visibleInteractionResults().find((item) => item.index === index);
+        if (!entry) return;
+        this.invalidateRefinementRequests();
+        this.refinement = { index, seed: entry.result };
+        this.setState({ refiningMask: index }, () => {
+            this.drawIntermediateShapesOnCanvas();
+            this.props.canvasInstance.interact({
+                enabled: true,
+                command: 'draw_points',
+                payload: { shapes: [], clearPrompts: true },
+                settings: {
+                    crosshair: false,
+                    points_type: 'any',
+                    appendCursorPositionAsPoint: false,
+                    removalStrategy: 'any',
+                    hint: `Refining mask ${index + 1}`,
+                    ...(this.state.interactorRegionOfInterest ? {
+                        regionOfInterest: this.state.interactorRegionOfInterest,
+                    } : {}),
+                },
+            });
+        });
+    };
+
+    private finishRefinement = (): void => {
+        this.invalidateRefinementRequests();
+        this.refinement = null;
+        this.setState({ refiningMask: null }, () => this.drawIntermediateShapesOnCanvas());
+    };
+
     private drawIntermediateShapesOnCanvas(): void {
         const { canvasInstance } = this.props;
-        const { convertMasksToPolygons, thresholdValue } = this.state;
-        const shapesToBeDrawn = this.interaction.latestResponse
-            .filter(({ confidence }) => typeof confidence !== 'number' || confidence >= thresholdValue)
-            .filter(({ approximatedPoints }) => !convertMasksToPolygons || approximatedPoints.length >= 3)
-            .map(({ rle, contours, approximatedPoints }) => ({
+        const { convertMasksToPolygons } = this.state;
+        const shapesToBeDrawn = this.visibleInteractionResults()
+            .map(({ result, index }) => ({ result: this.displayedMaskResult(index, result), index }))
+            .filter(({ result }) => !result.empty &&
+                (convertMasksToPolygons ? result.approximatedPoints.length >= 3 : result.rle.length >= 6))
+            .map(({ result: { rle, contours, approximatedPoints }, index }) => ({
+                id: index,
+                selected: this.refinement?.index === index,
+                selectionPoints: rle,
                 shapeType: convertMasksToPolygons ? ShapeType.POLYGON : ShapeType.MASK,
                 points: convertMasksToPolygons ? approximatedPoints.flat() : rle,
                 maskOutlines: contours.map((contour) => contour.flat()),
@@ -927,6 +1197,15 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 shapes: shapesToBeDrawn,
             },
         });
+
+        if (this.supportsMaskRefinement() && !this.refinement) {
+            canvasInstance.interact({
+                enabled: true,
+                command: 'select_shape',
+                payload: { shapes: [], clearPrompts: true },
+                settings: { crosshair: false },
+            });
+        }
 
         if (!shapesToBeDrawn.length) {
             if (!this.interaction.noShapesMessage) {
@@ -1219,9 +1498,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             return;
         }
 
-        const objectsToConstruct = this.interaction.latestResponse.filter(
-            ({ confidence }) => typeof confidence !== 'number' || confidence >= thresholdValue,
-        );
+        const objectsToConstruct = this.interaction.latestResponse
+            .map((result, index) => this.displayedMaskResult(index, result)).filter(
+                ({ confidence }) => typeof confidence !== 'number' || confidence >= thresholdValue,
+            );
 
         let skippedShapes = 0;
         let objects: ObjectState[] = [];
@@ -1439,6 +1719,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             type='primary'
                             loading={fetching}
                             className='cvat-tools-track-button'
+                            data-primary-action='true'
                             disabled={!activeTracker || fetching || frame === jobInstance.stopFrame}
                             onClick={() => {
                                 if (activeTracker && activeLabelID) {
@@ -1466,7 +1747,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         } = this.props;
         const {
             activeInteractor, activeLabelID, fetching, startInteractingWithBox, convertMasksToPolygons,
-            interactorExtraParams, allowROI,
+            interactorExtraParams, allowROI, interactorPromptMode, conceptUsesBox,
         } = this.state;
 
         if (!interactors.length) {
@@ -1484,6 +1765,24 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         const minNegVertices = activeInteractor?.params?.canvas?.minNegVertices ?? -1;
         const renderStartWithBox = activeInteractor?.params?.canvas?.startWithBoxOptional ?? false;
         const hasMappableLabels = activeInteractor && activeInteractor.labels && activeInteractor.labels.length > 0;
+        const schema = (activeInteractor?.extraParamsSchema ?? []) as ModelExtraParamSchemaItem[];
+        const textPromptSchema = schema.find((param) => param.name === 'text_prompt' && param.type === 'text');
+        const hasTextPrompting = this.hasTextPrompting();
+        const supportsConceptPrompting = this.supportsConceptPrompting();
+        const conceptMode = hasTextPrompting && interactorPromptMode === 'concept';
+        const conceptUsesExemplar = conceptMode && supportsConceptPrompting && conceptUsesBox;
+        const activeLabel = labels.find((label) => label.id === activeLabelID);
+        const textPrompt = typeof interactorExtraParams.text_prompt === 'string' ?
+            interactorExtraParams.text_prompt.trim() : '';
+        const validConceptPrompt = textPrompt.length <= (textPromptSchema?.max_length ?? 256) &&
+            (conceptUsesExemplar || textPrompt.length > 0);
+        const commonSchema = schema.filter((param) => param !== textPromptSchema);
+        const changeExtraParam = (name: string, value: unknown): void => {
+            this.setState((state) => ({
+                interactorExtraParams: { ...state.interactorExtraParams, [name]: value },
+                interactorExtraParamsTouched: { ...state.interactorExtraParamsTouched, [name]: true },
+            }));
+        };
 
         const renderedInteractorExtras = interactorExtras
             .sort((a, b) => a.data.weight - b.data.weight)
@@ -1503,7 +1802,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     <Col span={22}>
                         <Select
                             style={{ width: '100%' }}
-                            defaultValue={interactors[0].name}
+                            value={activeInteractor?.id}
                             onChange={this.setActiveInteractor}
                             className='cvat-interactor-selector'
                         >
@@ -1548,21 +1847,88 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
                 {!hasMappableLabels && this.renderLabelBlock()}
 
-                {activeInteractor?.extraParamsSchema && activeInteractor.extraParamsSchema.length > 0 && (
+                {hasTextPrompting && (
+                    <Row style={{ marginTop: 8 }}>
+                        <Radio.Group
+                            aria-label={supportsConceptPrompting ? 'SAM3 task mode' : 'Prompt mode'}
+                            value={interactorPromptMode}
+                            onChange={(event) => this.setState({ interactorPromptMode: event.target.value })}
+                            options={supportsConceptPrompting ? [
+                                { label: 'Single object', value: 'single_object' },
+                                { label: 'Find similar objects', value: 'concept' },
+                            ] : [
+                                { label: 'Points / box', value: 'single_object' },
+                                { label: 'Text', value: 'concept' },
+                            ]}
+                            optionType='button'
+                        />
+                    </Row>
+                )}
+
+                {commonSchema.length > 0 && (
                     <div className='cvat-tools-interactor-extra-params'>
                         <ModelExtraParamsForm
-                            schema={activeInteractor.extraParamsSchema as ModelExtraParamSchemaItem[]}
+                            schema={commonSchema}
                             values={interactorExtraParams}
-                            onChange={(name, value) => {
-                                this.setState((state) => ({
-                                    interactorExtraParams: { ...state.interactorExtraParams, [name]: value },
-                                    interactorExtraParamsTouched: {
-                                        ...state.interactorExtraParamsTouched, [name]: true,
-                                    },
-                                }));
-                            }}
+                            onChange={changeExtraParam}
                             title='Interactor parameters'
                         />
+                    </div>
+                )}
+
+                {(textPromptSchema || renderStartWithBox) && (
+                    <div className={`cvat-tools-interactor-mode-controls${supportsConceptPrompting ?
+                        ' cvat-tools-interactor-mode-controls-concept-capable' : ''}`}
+                    >
+                        {conceptMode && textPromptSchema ? (
+                            <div className='cvat-tools-interactor-concept-controls'>
+                                <ModelExtraParamsForm
+                                    schema={[supportsConceptPrompting ? {
+                                        ...textPromptSchema,
+                                        label: 'Concept description',
+                                    } : textPromptSchema]}
+                                    values={interactorExtraParams}
+                                    onChange={changeExtraParam}
+                                    title={supportsConceptPrompting ? 'Concept description' : 'Prompt'}
+                                />
+                                {supportsConceptPrompting && (
+                                    <div className='cvat-tools-interactor-concept-actions'>
+                                        <Button
+                                            size='small'
+                                            className='cvat-tools-use-label-name-button'
+                                            disabled={!activeLabel}
+                                            onClick={() => {
+                                                if (activeLabel) {
+                                                    changeExtraParam('text_prompt', activeLabel.name);
+                                                }
+                                            }}
+                                        >
+                                            Use label name
+                                        </Button>
+                                        <span className='cvat-tools-interactor-exemplar-control'>
+                                            <Switch
+                                                aria-label='Add positive exemplar box'
+                                                checked={conceptUsesBox}
+                                                onChange={(value: boolean) => this.setState({ conceptUsesBox: value })}
+                                            />
+                                            <Text>Add positive exemplar box</Text>
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        ) : renderStartWithBox && (
+                            <div className='cvat-tools-interactor-single-object-controls'>
+                                <Switch
+                                    aria-label='Start with a bounding box'
+                                    checked={startInteractingWithBox}
+                                    onChange={(value: boolean) => {
+                                        localStorage.setItem(startWithBoxStorageItem, value.toString());
+                                        this.setState({ startInteractingWithBox: value });
+                                    }}
+                                />
+                                <Text>Start with a bounding box</Text>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1577,18 +1943,6 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         />
                         <Text>Convert masks to polygons</Text>
                     </div>
-                    {renderStartWithBox && (
-                        <div>
-                            <Switch
-                                checked={startInteractingWithBox}
-                                onChange={(value: boolean) => {
-                                    localStorage.setItem(startWithBoxStorageItem, value.toString());
-                                    this.setState({ startInteractingWithBox: value });
-                                }}
-                            />
-                            <Text>Start with a bounding box</Text>
-                        </div>
-                    )}
                 </div>
                 <div className='cvat-tools-interactor-extras'>
                     {renderedInteractorExtras}
@@ -1599,39 +1953,96 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             type='primary'
                             loading={fetching}
                             className='cvat-tools-interact-button'
+                            data-primary-action='true'
                             disabled={!activeInteractor ||
                                 fetching ||
                                 activeInteractor.version < MIN_SUPPORTED_INTERACTOR_VERSION ||
-                                (!hasMappableLabels && !activeLabelID)}
+                                (!hasMappableLabels && !activeLabelID) ||
+                                (conceptMode && !validConceptPrompt)}
                             onClick={() => {
-                                if (activeInteractor && labels.length && (hasMappableLabels || activeLabelID)) {
-                                    this.setState({ mode: 'interaction' });
-                                    canvasInstance.cancel();
+                                if (activeInteractor && labels.length && (hasMappableLabels || activeLabelID) &&
+                                    !fetching && (!conceptMode || validConceptPrompt)) {
+                                    this.lastInteractorSetup = {
+                                        activeInteractor,
+                                        activeLabelID,
+                                        interactorPromptMode,
+                                        conceptUsesBox,
+                                        interactorExtraParams: lodash.cloneDeep(interactorExtraParams),
+                                        interactorExtraParamsTouched: { ...this.state.interactorExtraParamsTouched },
+                                        interactorMapping: lodash.cloneDeep(this.state.interactorMapping),
+                                        interactorRegionOfInterest: lodash.cloneDeep(
+                                            this.state.interactorRegionOfInterest,
+                                        ),
+                                    };
                                     const startWithBox = activeInteractor.params.canvas.startWithBoxOptional ? (
                                         startInteractingWithBox
                                     ) : activeInteractor.params.canvas.startWithBox ?? false;
 
-                                    const parameters = {
-                                        command: startWithBox ? 'draw_box' as const : 'draw_points' as const,
-                                        settings: {
-                                            appendCursorPositionAsPoint: false,
-                                            removalStrategy: 'any' as const,
-                                            points_type: 'any' as const,
-                                            crosshair: startWithBox,
-                                            ...(this.state.interactorRegionOfInterest ? {
-                                                regionOfInterest: this.state.interactorRegionOfInterest,
-                                            } : {}),
-                                        },
+                                    let parameters: Omit<Parameters<typeof canvasInstance.interact>[0], 'enabled'>;
+                                    if (conceptMode) {
+                                        parameters = conceptUsesExemplar ? {
+                                            command: 'draw_box' as const,
+                                            settings: {
+                                                crosshair: true,
+                                                ...(this.state.interactorRegionOfInterest ? {
+                                                    regionOfInterest: this.state.interactorRegionOfInterest,
+                                                } : {}),
+                                            },
+                                        } : {
+                                            command: 'put_shapes' as const,
+                                            payload: { shapes: [] },
+                                            settings: { crosshair: false },
+                                        };
+                                    } else {
+                                        parameters = {
+                                            command: startWithBox ? 'draw_box' as const : 'draw_points' as const,
+                                            settings: {
+                                                appendCursorPositionAsPoint: false,
+                                                removalStrategy: 'any' as const,
+                                                points_type: 'any' as const,
+                                                crosshair: startWithBox,
+                                                ...(this.state.interactorRegionOfInterest ? {
+                                                    regionOfInterest: this.state.interactorRegionOfInterest,
+                                                } : {}),
+                                            },
+                                        };
+                                    }
+                                    if (conceptMode) {
+                                        this.clearMaskAdjustments();
+                                        this.refinement = null;
+                                        this.refinementRevision++;
+                                        this.interaction = {
+                                            id: null,
+                                            isAborted: false,
+                                            latestPostponedRequest: null,
+                                            latestResponse: [],
+                                            latestRequest: null,
+                                            closeFetchingMessage: null,
+                                            noShapesMessage: null,
+                                        };
+                                    }
+                                    const activateInteractor = (): void => {
+                                        canvasInstance.cancel();
+                                        canvasInstance.interact({ enabled: true, ...parameters });
+                                        // For mapped multiclass interactors, pass -1 as a sentinel since the
+                                        // label is determined by the mapping
+                                        const labelID = activeLabelID ?? -1;
+                                        onInteractionStart(activeInteractor, labelID, parameters);
                                     };
-                                    canvasInstance.interact({ enabled: true, ...parameters });
-                                    // For mapped multiclass interactors, pass -1 as a sentinel since the
-                                    // label is determined by the mapping
-                                    const labelID = activeLabelID ?? -1;
-                                    onInteractionStart(activeInteractor, labelID, parameters);
+                                    if (conceptMode) {
+                                        this.setState({
+                                            mode: 'interaction',
+                                            interactorResponseReceived: false,
+                                            showConfidenceControl: false,
+                                            refiningMask: null,
+                                        }, activateInteractor);
+                                    } else {
+                                        this.setState({ mode: 'interaction' }, activateInteractor);
+                                    }
                                 }
                             }}
                         >
-                            Interact
+                            {conceptMode ? 'Find masks' : 'Interact'}
                         </Button>
                     </Col>
                 </Row>
@@ -1660,6 +2071,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         return (
             <DetectorRunner
                 withCleanup={false}
+                loading={this.state.fetching}
                 models={detectors}
                 labels={labels}
                 dimension={jobInstance.dimension}
@@ -1750,7 +2162,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     private renderPopoverContent(): JSX.Element {
         return (
-            <div className='cvat-tools-control-popover-content'>
+            <div
+                className='cvat-tools-control-popover-content'
+                role='presentation'
+                onKeyDown={primaryActionOnEnter}
+            >
                 <Row justify='start'>
                     <Col>
                         <Text className='cvat-text-color' strong>
@@ -1766,12 +2182,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     items={[{
                         key: 'interactors',
                         label: 'Interactors',
-                        children: (
-                            <>
-                                {this.renderLabelBlock()}
-                                {this.renderInteractorBlock()}
-                            </>
-                        ),
+                        children: this.renderInteractorBlock(),
                     }, {
                         key: 'detectors',
                         label: 'Detectors',
@@ -1828,6 +2239,17 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
         const interactionContent: JSX.Element | null = showInteractionContent ? (
             <>
+                {this.supportsMaskRefinement() && (
+                    <TextMaskRefinement
+                        masks={this.visibleInteractionResults().map(({ index }) => index)}
+                        selected={this.state.refiningMask}
+                        fetching={fetching}
+                        adjusting={Array.from(this.maskAdjustments.values()).some(({ pending }) => pending)}
+                        onSelect={this.selectRefinementMask}
+                        onBack={this.finishRefinement}
+                        onDone={() => canvasInstance.interact({ enabled: false })}
+                    />
+                )}
                 { convertMasksToPolygons && (
                     <ApproximationAccuracy
                         approxPolyAccuracy={approxPolyAccuracy}
@@ -1842,7 +2264,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                         onChange={(value: number) => {
                             this.setState({ thresholdValue: value });
                         }}
-                    />
+                    >
+                        {this.supportsMaskRefinement() && (
+                            <MaskMorphologyControl
+                                value={this.maskAdjustments.get(this.state.refiningMask as number)?.value ?? 0}
+                                disabled={this.state.refiningMask === null}
+                                pending={this.maskAdjustments.get(this.state.refiningMask as number)?.pending ?? false}
+                                onChange={(value: number) => {
+                                    if (this.state.refiningMask !== null) {
+                                        this.applyMaskAdjustment(this.state.refiningMask, value);
+                                    }
+                                }}
+                            />
+                        )}
+                    </ConfidenceThreshold>
                 )}
             </>
         ) : null;

@@ -7,6 +7,7 @@ import { Row, Col } from 'antd/lib/grid';
 import Select from 'antd/lib/select';
 import Text from 'antd/lib/typography/Text';
 import InputNumber from 'antd/lib/input-number';
+import Input from 'antd/lib/input';
 import Switch from 'antd/lib/switch';
 import Divider from 'antd/lib/divider';
 import { QuestionCircleOutlined } from '@ant-design/icons';
@@ -17,7 +18,7 @@ import './styles.scss';
 
 export interface ModelExtraParamSchemaItem {
     name: string;
-    type: 'number' | 'boolean' | 'select' | 'number_list';
+    type: 'number' | 'boolean' | 'select' | 'number_list' | 'text';
     label?: string;
     description?: string;
     default?: unknown;
@@ -25,6 +26,9 @@ export interface ModelExtraParamSchemaItem {
     max?: number;
     step?: number;
     options?: string[];
+    max_length?: number;
+    supports_mask_refinement?: boolean;
+    supports_concept_box?: boolean;
 }
 
 export function buildExtraParamsDefaults(schema: ModelExtraParamSchemaItem[]): Record<string, unknown> {
@@ -78,6 +82,14 @@ function ModelExtraParamsForm(props: ModelExtraParamsFormProps): JSX.Element | n
                             )}
                         </Col>
                         <Col span={12}>
+                            {param.type === 'text' && (
+                                <Input
+                                    aria-label={param.label ?? param.name}
+                                    value={typeof currentVal === 'string' ? currentVal : ''}
+                                    maxLength={param.max_length}
+                                    onChange={(event) => updateParam(param.name, event.target.value)}
+                                />
+                            )}
                             {param.type === 'number' && (
                                 <InputNumber
                                     style={{ width: '100%' }}

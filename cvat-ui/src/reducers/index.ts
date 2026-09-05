@@ -51,6 +51,7 @@ export interface AudioState {
 }
 
 export interface AuthState {
+    sessionVersion: number;
     initialized: boolean;
     fetching: boolean;
     user: User | null;

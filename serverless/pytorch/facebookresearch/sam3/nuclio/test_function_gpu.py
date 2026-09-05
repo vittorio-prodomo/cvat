@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import yaml
 
@@ -127,6 +128,29 @@ def test_manifest_pins_supported_python_cuda_torch_and_sam3_revision():
     assert 'pycocotools==2.0.11' in directives
     assert 'psutil==7.2.2' in directives
     assert 'huggingface-hub==1.29.0' in directives
+
+
+def test_manifest_declares_text_capability_and_preserves_optional_visual_prompts():
+    annotations = load_manifest()['metadata']['annotations']
+
+    assert json.loads(annotations.get('extra_params_schema', '[]')) == [{
+        'name': 'text_prompt',
+        'type': 'text',
+        'label': 'Text prompt',
+        'description': 'A short description of the objects to find',
+        'default': '',
+        'max_length': 256,
+        'supports_mask_refinement': True,
+        'supports_concept_box': True,
+    }]
+    assert annotations['min_pos_points'] == 0
+    assert annotations['min_neg_points'] == 0
+    assert annotations['startswith_box_optional'] is True
+    assert annotations['help_message'] == (
+        'Use Single object for points and an optional starting box. '
+        'Use Find similar objects with text, one positive exemplar box, or both; '
+        'then select a returned mask for point refinement.'
+    )
 
 
 def test_manifest_locks_os_snapshot_and_complete_python_resolution():

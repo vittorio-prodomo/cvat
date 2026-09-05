@@ -115,7 +115,9 @@ export default (state = defaultState, action: ShortcutsActions | BoundariesActio
         }
         case BoundariesActionTypes.RESET_AFTER_ERROR:
         case AuthActionTypes.LOGOUT_SUCCESS: {
-            return { ...defaultState };
+            // Components register shortcuts when their modules load, which does not
+            // happen again when switching accounts or recovering from an error.
+            return { ...state, visibleShortcutsHelp: false };
         }
         default: {
             return state;

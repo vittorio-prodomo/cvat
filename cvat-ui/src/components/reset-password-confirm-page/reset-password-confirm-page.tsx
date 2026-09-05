@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { connect } from 'react-redux';
+import { useHistory } from 'react-router';
 import Title from 'antd/lib/typography/Title';
 import { Row, Col } from 'antd/lib/grid';
 import Layout from 'antd/lib/layout';
@@ -23,7 +24,7 @@ interface DispatchToProps {
 
 interface ResetPasswordConfirmPageComponentProps {
     fetching: boolean;
-    onResetPasswordConfirm: (newPassword1: string, newPassword2: string, uid: string, token: string) => void;
+    onResetPasswordConfirm: (...args: Parameters<typeof resetPasswordAsync>) => void;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -37,6 +38,7 @@ const mapDispatchToProps: DispatchToProps = {
 };
 
 function ResetPasswordPagePageComponent(props: ResetPasswordConfirmPageComponentProps): JSX.Element {
+    const history = useHistory();
     const sizes = {
         xs: { span: 14 },
         sm: { span: 14 },
@@ -63,6 +65,7 @@ function ResetPasswordPagePageComponent(props: ResetPasswordConfirmPageComponent
                                     resetPasswordConfirmData.newPassword2,
                                     resetPasswordConfirmData.uid,
                                     resetPasswordConfirmData.token,
+                                    () => history.replace('/auth/login'),
                                 );
                             }}
                         />

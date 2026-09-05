@@ -186,14 +186,20 @@ export function setHoveredChapter(id: number | null): AnyAction {
 }
 
 export function saveLogsAsync(): ThunkAction {
-    return async (dispatch: ThunkDispatch) => {
+    return async (dispatch: ThunkDispatch, getState) => {
+        const { user, sessionVersion } = getState().auth;
+        if (!user) return;
+
         try {
             await logger.save();
+            if (getState().auth.sessionVersion !== sessionVersion) return;
             dispatch({
                 type: AnnotationActionTypes.SAVE_LOGS_SUCCESS,
                 payload: {},
             });
         } catch (error) {
+            // A pending upload can finish after logout or a switch to another account.
+            if (getState().auth.sessionVersion !== sessionVersion) return;
             dispatch({
                 type: AnnotationActionTypes.SAVE_LOGS_FAILED,
                 payload: {

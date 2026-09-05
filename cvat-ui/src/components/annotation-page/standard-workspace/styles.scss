@@ -195,6 +195,50 @@
     margin-top: $grid-unit-size * 2;
 }
 
+.cvat-tools-interactor-mode-controls {
+    min-height: $grid-unit-size * 4;
+    margin-top: $grid-unit-size;
+    display: flex;
+    align-items: center;
+
+    .cvat-model-extra-params {
+        width: 100%;
+
+        > .ant-divider {
+            display: none;
+        }
+
+        .cvat-model-extra-params-row {
+            margin-bottom: 0;
+        }
+    }
+}
+
+.cvat-tools-interactor-mode-controls-concept-capable {
+    min-height: $grid-unit-size * 10;
+}
+
+.cvat-tools-interactor-concept-controls {
+    width: 100%;
+}
+
+.cvat-tools-interactor-concept-actions {
+    display: flex;
+    align-items: center;
+    gap: $grid-unit-size * 2;
+    margin-top: $grid-unit-size;
+}
+
+.cvat-tools-interactor-exemplar-control,
+.cvat-tools-interactor-single-object-controls {
+    display: flex;
+    align-items: center;
+
+    > .ant-switch {
+        margin-right: $grid-unit-size;
+    }
+}
+
 .cvat-tools-interactor-extras {
     margin-top: $grid-unit-size * 2;
 }
@@ -241,6 +285,28 @@
 
     .ant-progress {
         margin-left: $grid-unit-size;
+    }
+}
+
+.cvat-tools-control-popover-content {
+    // Keep tab overflow measurements independent of the active tool's contents.
+    width: $grid-unit-size * 65;
+    max-width: calc(100vw - $grid-unit-size * 8);
+
+    .cvat-automatic-annotation-region-of-interest-container {
+        > .ant-row {
+            flex-wrap: nowrap;
+        }
+
+        @media (max-width: $grid-unit-size * 60) {
+            .ant-input-number {
+                width: clamp(44px, calc((100vw - 224px) / 4), 90px);
+            }
+
+            .ant-btn-link {
+                padding-inline: 0;
+            }
+        }
     }
 }
 

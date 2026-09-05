@@ -133,9 +133,13 @@ export interface DrawData {
 
 export interface InteractionData {
     enabled: boolean;
-    command?: 'draw_points' | 'draw_box' | 'put_shapes' | 'refine';
+    command?: 'draw_points' | 'draw_box' | 'put_shapes' | 'refine' | 'select_shape';
     payload?: {
+        clearPrompts?: boolean;
         shapes: {
+            id?: number;
+            selected?: boolean;
+            selectionPoints?: ArrayLike<number>;
             shapeType: string;
             points: ArrayLike<number>;
             maskOutlines?: ArrayLike<number>[];

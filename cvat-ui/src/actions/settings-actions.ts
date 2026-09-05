@@ -15,6 +15,9 @@ import { SerializedImageFilter } from 'cvat-core-wrapper';
 import { ImageFilter, ImageFilterAlias } from 'utils/image-processing';
 import GammaCorrection, { GammaFilterOptions } from 'utils/fabric-wrapper/gamma-correction';
 import { resolveConflicts } from 'utils/conflict-detector';
+import {
+    DEFAULT_WORKSPACE_TEXT_CONTENT, WORKSPACE_TEXT_CONTENT_DEFAULTS_VERSION,
+} from 'utils/workspace-text-content-default';
 import { shortcutsActions } from './shortcuts-actions';
 
 export enum SettingsActionTypes {
@@ -453,12 +456,25 @@ export function restoreSettingsAsync(): ThunkAction {
         const state: CombinedState = getState();
         const { settings, shortcuts } = state;
 
-        dispatch(shortcutsActions.setDefaultShortcuts(structuredClone(shortcuts.keyMap)));
+        // Keep the original defaults when Settings remounts after switching accounts.
+        if (!Object.keys(shortcuts.defaultState).length) {
+            dispatch(shortcutsActions.setDefaultShortcuts(structuredClone(shortcuts.keyMap)));
+        }
 
         const settingsString = localStorage.getItem('clientSettings') as string;
         if (!settingsString) return;
 
         const loadedSettings = JSON.parse(settingsString);
+        // Apply the new text selection once, then preserve subsequent user choices.
+        if ((loadedSettings.workspaceTextContentDefaultsVersion ?? 0) < WORKSPACE_TEXT_CONTENT_DEFAULTS_VERSION) {
+            loadedSettings.workspace = {
+                ...loadedSettings.workspace,
+                textContent: DEFAULT_WORKSPACE_TEXT_CONTENT,
+            };
+            loadedSettings.workspaceTextContentDefaultsVersion = WORKSPACE_TEXT_CONTENT_DEFAULTS_VERSION;
+            localStorage.setItem('clientSettings', JSON.stringify(loadedSettings));
+        }
+
         const newSettings = {
             player: settings.player,
             workspace: settings.workspace,
@@ -506,6 +522,7 @@ export function restoreSettingsAsync(): ThunkAction {
 export function updateCachedSettings(settings: CombinedState['settings'], shortcuts: CombinedState['shortcuts']): void {
     const supportedImageFilters = [ImageFilterAlias.GAMMA_CORRECTION];
     const settingsForSaving = {
+        workspaceTextContentDefaultsVersion: WORKSPACE_TEXT_CONTENT_DEFAULTS_VERSION,
         player: settings.player,
         workspace: settings.workspace,
         shortcuts: {

@@ -16,8 +16,12 @@ function LogoutComponent(): JSX.Element {
 
     useEffect(() => {
         dispatch(saveLogsAsync()).then(() => {
-            dispatch(logoutAsync()).then(() => {
-                history.goBack();
+            dispatch(logoutAsync()).then((success: boolean) => {
+                if (success) {
+                    history.replace('/auth/login');
+                } else {
+                    history.replace('/tasks');
+                }
             });
         });
     }, []);

@@ -43,6 +43,7 @@ function ItemAttributeComponent(props: Props): JSX.Element {
         attrName, attrID, readonly, changeAttribute,
     } = props;
 
+    const displayName = attrName === 'model_confidence' ? 'model_conf' : attrName;
     const attrNameStyle: React.CSSProperties = { wordBreak: 'break-word', lineHeight: '1em', fontSize: 12 };
     const ref = useRef<TextAreaRef>(null);
     const [selectionStart, setSelectionStart] = useState<number>(attrValue.length);
@@ -83,8 +84,8 @@ function ItemAttributeComponent(props: Props): JSX.Element {
                         setAttributeValue(event.target.checked ? 'true' : 'false');
                     }}
                 >
-                    <Text style={attrNameStyle} className='cvat-text'>
-                        {attrName}
+                    <Text style={attrNameStyle} className='cvat-text' title={attrName}>
+                        {displayName}
                     </Text>
                 </Checkbox>
             </Col>
@@ -96,8 +97,8 @@ function ItemAttributeComponent(props: Props): JSX.Element {
             <Col span={24}>
                 <fieldset className='cvat-object-item-radio-attribute'>
                     <legend>
-                        <Text style={attrNameStyle} className='cvat-text'>
-                            {attrName}
+                        <Text style={attrNameStyle} className='cvat-text' title={attrName}>
+                            {displayName}
                         </Text>
                     </legend>
                     <Radio.Group
@@ -125,7 +126,7 @@ function ItemAttributeComponent(props: Props): JSX.Element {
         return (
             <>
                 <Col span={8} style={attrNameStyle}>
-                    <Text className='cvat-text'>{attrName}</Text>
+                    <Text className='cvat-text' title={attrName}>{displayName}</Text>
                 </Col>
                 <Col span={16}>
                     <Select
@@ -155,7 +156,7 @@ function ItemAttributeComponent(props: Props): JSX.Element {
         return (
             <>
                 <Col span={8} style={attrNameStyle}>
-                    <Text className='cvat-text'>{attrName}</Text>
+                    <Text className='cvat-text' title={attrName}>{displayName}</Text>
                 </Col>
                 <Col span={16}>
                     <InputNumber
@@ -180,7 +181,7 @@ function ItemAttributeComponent(props: Props): JSX.Element {
     return (
         <>
             <Col span={8} style={attrNameStyle}>
-                <Text className='cvat-text'>{attrName}</Text>
+                <Text className='cvat-text' title={attrName}>{displayName}</Text>
             </Col>
             <Col span={16}>
                 <TextArea

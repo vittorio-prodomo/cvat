@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Frame Tag Contrast</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbfbfa; --surface:#fff; --text:#20242a; --muted:#68707c; --border:#dfe3e8; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#101217; --surface:#181b23; --text:#edf0f4; --muted:#a3abb8; --border:#303642; --accent:#8ab4ff; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:48px 24px 80px; }
+  h1 { margin:0 0 4px; font-size:32px; line-height:1.2; }
+  h2 { margin:36px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); font-size:21px; }
+  .meta { color:var(--muted); margin:0 0 28px; }
+  .callout { background:var(--surface); border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; padding:14px 16px; }
+  .options { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; }
+  .option { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  .option.recommended { border-color:var(--accent); }
+  .tag { display:inline-block; padding:2px 8px; border-radius:999px; background:#e8f0ff; color:#174ea6; font-size:12px; font-weight:650; }
+  code { background:color-mix(in srgb,var(--surface) 70%,var(--border)); border-radius:4px; padding:.1em .35em; }
+  li { margin:.4em 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Adaptive Frame Tag Contrast</h1>
+  <p class="meta">CVAT UI design · approved 2026-09-05</p>
+
+  <h2>Executive summary</h2>
+  <p>Frame tags currently receive a label-colored background while Ant Design forces their text and close icon to a light color. White and other light labels therefore become unreadable. The fix will reuse CVAT's existing <code>computeTextColor()</code> utility, improve its black/white choice using WCAG relative luminance, and explicitly apply its foreground to both the pill text and close icon.</p>
+  <div class="callout"><strong>Scope:</strong> top-left frame tags in annotation and tag-annotation workspaces, including ground-truth tags. Label schema colors and annotation data do not change.</div>
+
+  <h2>Options considered</h2>
+  <div class="options">
+    <section class="option recommended"><span class="tag">Recommended</span><h3>Shared contrast utility and targeted wiring</h3><p>Choose black or white by relative-luminance contrast, then set it directly on each frame tag and close icon. This keeps one shared algorithm and is immune to Ant Design's generated style order.</p></section>
+    <section class="option"><h3>Global Ant Tag override</h3><p>Change every custom-color Ant tag. Broader consistency, but risks unrelated screens and preset-status tags.</p></section>
+    <section class="option"><h3>New shared Tag wrapper</h3><p>Centralize future colored tags. Useful only if several screens need migration; unnecessary for this defect.</p></section>
+  </div>
+
+  <h2>Component behavior</h2>
+  <ol>
+    <li>Validate a six-digit hexadecimal color and calculate its standard sRGB relative luminance.</li>
+    <li>Select whichever of black or white produces greater WCAG contrast; retain white as the fallback for malformed input.</li>
+    <li>For each visible frame tag, pass <code>tag.label.color</code> to the shared <code>computeTextColor()</code>.</li>
+    <li>Apply the result as the tag's inline text color.</li>
+    <li>For removable tags, render the normal close glyph with the same inline color so Ant Design's light-icon rule cannot override it.</li>
+    <li>Keep existing highlighting, filtering, removal, ground-truth rendering, and label background behavior intact.</li>
+  </ol>
+
+  <h2>Verification</h2>
+  <ul>
+    <li>A test-first component harness must fail against the current source because foreground props are absent.</li>
+    <li>The harness must prove black text and close icon on white/light backgrounds, white foreground on purple/dark backgrounds, and correct choices for saturated CVAT palette greens and reds.</li>
+    <li>A real React/JSDOM/Ant Design integration must check rendered styles, SVG <code>currentColor</code>, and close dispatch whenever the optional DOM dependency is available.</li>
+    <li>TypeScript, targeted lint, the existing tag-annotation Cypress spec, and a production UI build must remain clean.</li>
+    <li>A Chromium candidate harness must inspect computed colors for both the pill text and close icon.</li>
+  </ul>
+</main>
+</body>
+</html>

@@ -317,6 +317,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
     private onInteraction = (
         shapes: InteractionResult[] | null,
         finished = false,
+        selectedShape?: number,
     ): void => {
         // whenever prompts are updated, interactor sends corresponding event with prompts
         // when finished, it also sends finish flag equals to "true"
@@ -328,6 +329,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 detail: {
                     finished,
                     shapes,
+                    ...(selectedShape !== undefined ? { selectedShape } : {}),
                 },
             });
 

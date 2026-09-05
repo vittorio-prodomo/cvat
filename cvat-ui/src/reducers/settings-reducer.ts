@@ -8,6 +8,7 @@ import { AnyAction } from 'redux';
 import { AuthActionTypes } from 'actions/auth-actions';
 import { SettingsActionTypes } from 'actions/settings-actions';
 import { AnnotationActionTypes } from 'actions/annotation-actions';
+import { DEFAULT_WORKSPACE_TEXT_CONTENT } from 'utils/workspace-text-content-default';
 import {
     SettingsState, GridColor, FrameSpeed, ColorBy,
 } from 'reducers';
@@ -42,7 +43,7 @@ const defaultState: SettingsState = {
         textFontSize: 14,
         controlPointsSize: 5,
         textPosition: 'auto',
-        textContent: 'id,source,label,attributes,descriptions,dimensions',
+        textContent: DEFAULT_WORKSPACE_TEXT_CONTENT,
         toolsBlockerState: {
             algorithmsLocked: false,
             buttonVisible: false,

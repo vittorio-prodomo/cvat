@@ -6,6 +6,7 @@ import React, { useCallback, useRef } from 'react';
 
 import { Attribute, Label, LabelType } from 'cvat-core-wrapper';
 import ObjectMatcher from './object-mapper';
+import { computeLabelsAutoMapping, labelsCompatible } from './labels-auto-mapping';
 
 export type Md2JobAttributesMapping = [AttributeInterface | null, AttributeInterface | null][];
 export type Md2JobLabelsMapping = [LabelInterface, LabelInterface][];
@@ -31,33 +32,6 @@ interface Props {
     modelLabels: LabelInterface[];
     taskLabels: LabelInterface[];
     onUpdateMapping(mapping: FullMapping): void;
-}
-
-function labelsCompatible(modelLabel: LabelInterface, jobLabel: LabelInterface): boolean {
-    const { type: modelLabelType } = modelLabel;
-    const { type: jobLabelType } = jobLabel;
-    const compatibleTypes = [[LabelType.MASK, LabelType.POLYGON]];
-    return modelLabelType === jobLabelType ||
-        (jobLabelType === LabelType.ANY && modelLabelType !== LabelType.SKELETON) ||
-        (modelLabelType === LabelType.ANY && jobLabelType !== LabelType.SKELETON) ||
-        compatibleTypes.some((compatible) => compatible.includes(jobLabelType) && compatible.includes(modelLabelType));
-}
-
-function computeLabelsAutoMapping(
-    modelLabels: LabelInterface[],
-    taskLabels: LabelInterface[],
-): Md2JobLabelsMapping {
-    const autoMapping: Md2JobLabelsMapping = [];
-    for (let i = 0; i < modelLabels.length; i++) {
-        for (let j = 0; j < taskLabels.length; j++) {
-            const modelLabel = modelLabels[i];
-            const taskLabel = taskLabels[j];
-            if (modelLabel.name === taskLabel.name && labelsCompatible(modelLabel, taskLabel)) {
-                autoMapping.push([modelLabel, taskLabel]);
-            }
-        }
-    }
-    return autoMapping;
 }
 
 function computeAttributesAutoMapping(

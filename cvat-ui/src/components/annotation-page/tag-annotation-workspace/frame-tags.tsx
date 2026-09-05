@@ -6,6 +6,7 @@
 import './styles.scss';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { CloseOutlined } from '@ant-design/icons';
 import Tag from 'antd/lib/tag';
 import { useDispatch, useSelector } from 'react-redux';
 import { shallowEqual } from 'utils/redux';
@@ -15,6 +16,7 @@ import {
 } from 'actions/annotation-actions';
 import { CombinedState } from 'reducers';
 import { AnnotationConflict, ObjectState, ObjectType } from 'cvat-core-wrapper';
+import { computeTextColor } from 'utils/compute-text-color';
 import { filterAnnotations } from 'utils/filter-annotations';
 
 function FrameTags(): JSX.Element {
@@ -51,37 +53,46 @@ function FrameTags(): JSX.Element {
             <div className='cvat-canvas-annotation-frame-tags'>
                 {frameTags
                     .filter((tag: ObjectState) => !tag.isGroundTruth)
-                    .map((tag: ObjectState) => (
-                        <Tag
-                            className={tagClassName(tag)}
-                            color={tag.label.color}
-                            onClose={() => {
-                                onRemoveState(tag);
-                            }}
-                            key={tag.clientID}
-                            closable
-                        >
-                            {tag.label.name}
-                        </Tag>
-                    ))}
+                    .map((tag: ObjectState) => {
+                        const foregroundColor = computeTextColor(tag.label.color);
+                        return (
+                            <Tag
+                                className={tagClassName(tag)}
+                                color={tag.label.color}
+                                style={{ color: foregroundColor }}
+                                onClose={() => {
+                                    onRemoveState(tag);
+                                }}
+                                closeIcon={<CloseOutlined style={{ color: foregroundColor }} />}
+                                key={tag.clientID}
+                                closable
+                            >
+                                {tag.label.name}
+                            </Tag>
+                        );
+                    })}
             </div>
             <div className='cvat-canvas-ground-truth-frame-tags'>
                 {frameTags
                     .filter((tag: ObjectState) => tag.isGroundTruth)
-                    .map((tag: ObjectState) => (
-                        <Tag
-                            className={tagClassName(tag)}
-                            color={tag.label.color}
-                            onClose={() => {
-                                onRemoveState(tag);
-                            }}
-                            key={tag.clientID}
-                        >
-                            {tag.label.name}
-                            {' '}
-                            (GT)
-                        </Tag>
-                    ))}
+                    .map((tag: ObjectState) => {
+                        const foregroundColor = computeTextColor(tag.label.color);
+                        return (
+                            <Tag
+                                className={tagClassName(tag)}
+                                color={tag.label.color}
+                                style={{ color: foregroundColor }}
+                                onClose={() => {
+                                    onRemoveState(tag);
+                                }}
+                                key={tag.clientID}
+                            >
+                                {tag.label.name}
+                                {' '}
+                                (GT)
+                            </Tag>
+                        );
+                    })}
             </div>
         </>
     );

@@ -55,7 +55,7 @@ function deleteButtonPath(r: number): string {
 export class InteractionHandlerImpl implements InteractionHandler {
     private settings: Omit<Required<InteractionData['settings']>, 'hint' | 'regionOfInterest'>;
     private enabled: boolean;
-    private command: 'draw_box' | 'draw_points' | 'put_shapes' | 'refine' | 'idle';
+    private command: InteractionData['command'] | 'idle';
     private currentRectangle: SVG.Rect | null;
     private rectanglePrompts: SVG.Rect[];
     private pointPrompts: SVG.Circle[];
@@ -63,7 +63,8 @@ export class InteractionHandlerImpl implements InteractionHandler {
     private deletionButtons: Map<SupportedShapes, SVG.G>;
     private intermediateShapes: (SVG.Image | SVG.Polygon)[];
     private intermediateMaskOutlines: SVG.Polygon[];
-    private onInteraction: (interactionResult: InteractionResult[], finished?: boolean) => void;
+    private selectionShapes: InteractionData['payload']['shapes'];
+    private onInteraction: (interactionResult: InteractionResult[], finished?: boolean, selectedShape?: number) => void;
     private onMessage: (messages: CanvasHint[] | null, topic: string) => void;
     private geometry: Geometry;
     private container: SVG.Container;
@@ -102,6 +103,7 @@ export class InteractionHandlerImpl implements InteractionHandler {
         this.pointPrompts = [];
         this.allPrompts = [];
         this.intermediateShapes = [];
+        this.selectionShapes = [];
         this.intermediateMaskOutlines = [];
         this.deletionButtons = new Map();
         this.effectiveStrokeWidth = consts.BASE_STROKE_WIDTH / this.geometry.scale;
@@ -155,6 +157,7 @@ export class InteractionHandlerImpl implements InteractionHandler {
         this.intermediateMaskOutlines.forEach((outline) => outline.remove());
         this.intermediateShapes = [];
         this.intermediateMaskOutlines = [];
+        this.selectionShapes = [];
     }
 
     private release(): void {
@@ -176,9 +179,9 @@ export class InteractionHandlerImpl implements InteractionHandler {
         if (regionOfInterest) {
             return (
                 imageX >= regionOfInterest[0] &&
-                imageX <= regionOfInterest[2] &&
+                imageX < regionOfInterest[2] &&
                 imageY >= regionOfInterest[1] &&
-                imageY <= regionOfInterest[3]
+                imageY < regionOfInterest[3]
             );
         }
 
@@ -280,11 +283,13 @@ export class InteractionHandlerImpl implements InteractionHandler {
 
     private putShapes(shapes: InteractionData['payload']['shapes']): void {
         this.clearIntermediateShapes();
+        this.selectionShapes = shapes;
 
         for (const shape of shapes) {
             const {
-                points, shapeType, maskOutlines,
+                points, shapeType, maskOutlines, selected,
             } = shape;
+            const color = selected ? '#1890ff' : '#000000';
             if (shapeType === 'polygon') {
                 const isInvalidShape = points.length < 3 * 2;
                 const polygon = this.container
@@ -293,7 +298,8 @@ export class InteractionHandlerImpl implements InteractionHandler {
                         'color-rendering': 'optimizeQuality',
                         'shape-rendering': 'geometricprecision',
                         'stroke-width': consts.BASE_STROKE_WIDTH / this.geometry.scale,
-                        stroke: isInvalidShape ? 'red' : 'black',
+                        stroke: isInvalidShape ? 'red' : color,
+                        'pointer-events': 'none',
                     })
                     .fill({ opacity: this.effectiveShapeOpacity, color: 'white' })
                     .addClass('cvat_canvas_interact_intermediate_shape');
@@ -304,7 +310,8 @@ export class InteractionHandlerImpl implements InteractionHandler {
                 const top = points[points.length - 3];
                 const right = points[points.length - 2];
                 const bottom = points[points.length - 1];
-                const imageBitmap = RLEToImageData(255, 255, 255, points);
+                const imageBitmap = selected ? RLEToImageData(24, 144, 255, points) :
+                    RLEToImageData(255, 255, 255, points);
                 const image = this.container.image().attr({
                     'color-rendering': 'optimizeQuality',
                     'shape-rendering': 'geometricprecision',
@@ -323,7 +330,8 @@ export class InteractionHandlerImpl implements InteractionHandler {
                         const maskOutline = this.container
                             .polygon(outlinePoints)
                             .fill('none')
-                            .stroke({ color: '#000000', width: strokeWidth })
+                            .stroke({ color, width: strokeWidth })
+                            .attr({ 'pointer-events': 'none' })
                             .addClass('cvat_canvas_interact_mask_outline');
 
                         insertionPoint.after(maskOutline.node);
@@ -479,7 +487,26 @@ export class InteractionHandlerImpl implements InteractionHandler {
             this.container.node as unknown as SVGSVGElement,
             [e.clientX, e.clientY],
         );
-        if (this.command === 'draw_box') {
+        if (this.command === 'select_shape') {
+            if (e.button !== 0) return;
+            const imageX = Math.floor(x - this.geometry.offset);
+            const imageY = Math.floor(y - this.geometry.offset);
+            // Shapes are prepended when rendered, so the first item is visually on top.
+            const selected = this.selectionShapes.find((shape) => {
+                const rle = shape.selectionPoints ?? (shape.shapeType === 'mask' ? shape.points : null);
+                if (!rle || shape.id === undefined) return false;
+                const [left, top, right, bottom] = Array.from(rle).slice(-4);
+                if (imageX < left || imageX > right || imageY < top || imageY > bottom) return false;
+                const pixel = (imageY - top) * (right - left + 1) + imageX - left;
+                let end = 0;
+                for (let run = 0; run < rle.length - 4; run++) {
+                    end += rle[run];
+                    if (pixel < end) return run % 2 === 1;
+                }
+                return false;
+            });
+            if (selected) this.onInteraction([], false, selected.id);
+        } else if (this.command === 'draw_box') {
             (this.currentRectangle as any).draw(e);
         } else if (this.command === 'draw_points') {
             if (!this.isWithinInteractionBounds(x, y)) {
@@ -600,6 +627,10 @@ export class InteractionHandlerImpl implements InteractionHandler {
         }
 
         if (this.enabled) {
+            if (interactData.payload?.clearPrompts) {
+                this.clearCurrentRectangle();
+                this.clearPromptsAndButtons();
+            }
             if (this.settings.crosshair) {
                 this.crosshair.show(
                     this.container,
@@ -633,6 +664,14 @@ export class InteractionHandlerImpl implements InteractionHandler {
                 }
             } else if (command === 'put_shapes') {
                 this.putShapes(interactData.payload.shapes);
+            } else if (command === 'select_shape') {
+                this.command = command;
+                this.clearCurrentRectangle();
+                this.onMessage([{
+                    type: 'text',
+                    icon: 'info',
+                    content: 'Click a mask to refine it, or choose a mask in the selector',
+                }], 'interaction');
             } else if (command === 'refine') {
                 this.refine();
             }

@@ -149,15 +149,17 @@ export const loginAsync = (credential: string, password: string): ThunkAction =>
     }
 };
 
-export const logoutAsync = (): ThunkAction => async (dispatch) => {
+export const logoutAsync = (): ThunkAction<Promise<boolean>> => async (dispatch) => {
     dispatch(authActions.logout());
 
     try {
         await cvat.organizations.deactivate();
         await cvat.server.logout();
         dispatch(authActions.logoutSuccess());
+        return true;
     } catch (error) {
         dispatch(authActions.logoutFailed(error));
+        return false;
     }
 };
 
@@ -211,12 +213,14 @@ export const resetPasswordAsync = (
     newPassword2: string,
     uid: string,
     token: string,
+    onSuccess?: () => void,
 ): ThunkAction => async (dispatch) => {
     dispatch(authActions.resetPassword());
 
     try {
         await cvat.server.resetPassword(newPassword1, newPassword2, uid, token);
         dispatch(authActions.resetPasswordSuccess());
+        onSuccess?.();
     } catch (error) {
         dispatch(authActions.resetPasswordFailed(error));
     }
