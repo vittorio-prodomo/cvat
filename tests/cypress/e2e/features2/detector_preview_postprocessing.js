@@ -801,7 +801,7 @@ context('Detector preview postprocessing', () => {
                 request.reply({ statusCode: 200, body: makeAllShapeTypesResponse(labelIds) });
             }).as('allShapeTypesCall');
 
-            ['NMM', 'NMM (greedy)'].forEach((method, index, methods) => {
+            ['NMS', 'NMM', 'NMM (greedy)'].forEach((method, index, methods) => {
                 selectPostprocessingMethod(method);
                 cy.get(RUN_BUTTON).click();
                 cy.wait('@allShapeTypesCall');
