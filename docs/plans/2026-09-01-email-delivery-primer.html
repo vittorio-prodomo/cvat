@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email delivery primer for CVAT</title>
+<link rel="stylesheet" media="(prefers-color-scheme: light)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" integrity="sha512-rO+olRTkcf304DQBxSWxln8JXCzTHlKnIdnMUwYvQa9/Jd4cQaNkItIUj6Z4nvW1dqK0SKXLbn9h4KwZTNtAyw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<style>
+  :root { --bg:#f8fafc; --surface:#fff; --text:#172033; --muted:#64748b; --border:#dce2ea; --accent:#0f766e; --accent-soft:#e8f6f3;
+    --code-bg:#f1f5f9; --shadow:0 2px 18px rgba(15,23,42,.07); --radius:12px;
+    --info:#2563eb; --info-bg:#eff6ff; --warn:#b45309; --warn-bg:#fff7ed; --ok:#047857; --ok-bg:#ecfdf5; --bad:#b91c1c; --bad-bg:#fef2f2; }
+  @media (prefers-color-scheme:dark) { :root { --bg:#0d1117; --surface:#161b22; --text:#e6edf3; --muted:#9ba7b4; --border:#30363d;
+    --accent:#56c8b9; --accent-soft:#15302d; --code-bg:#1c2128; --shadow:0 2px 22px rgba(0,0,0,.4); --info-bg:#13213b; --warn-bg:#2a1f12; --ok-bg:#0e231c; --bad-bg:#2a1416; } }
+  * { box-sizing:border-box; } html { scroll-behavior:smooth; } body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .topbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px; padding:12px 24px; background:color-mix(in srgb,var(--bg) 87%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+  .topbar .title { font-weight:700; font-size:15px; } .topbar .spacer { flex:1; }
+  .action { font:inherit; font-size:13px; font-weight:600; cursor:pointer; padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); }
+  .action:hover { border-color:var(--accent); color:var(--accent); }
+  .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:40px; max-width:1160px; margin:0 auto; padding:40px 24px 96px; }
+  .toc { position:sticky; top:76px; align-self:start; font-size:13.5px; max-height:calc(100vh - 100px); overflow:auto; }
+  .toc-title { text-transform:uppercase; letter-spacing:.08em; font-size:11px; color:var(--muted); margin:0 0 10px 4px; }
+  .toc a { display:block; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:7px; border-left:2px solid transparent; line-height:1.4; }
+  .toc a:hover,.toc a.active { color:var(--accent); background:var(--accent-soft); border-left-color:var(--accent); } .toc a.h3 { padding-left:22px; font-size:12.5px; }
+  .content { min-width:0; } h1 { font-size:32px; line-height:1.15; letter-spacing:-.025em; margin:0 0 6px; } .doc-sub { color:var(--muted); font-size:17px; margin:0 0 4px; }
+  .doc-meta { color:var(--muted); font-size:13px; margin:0 0 28px; } h2 { font-size:22px; margin:44px 0 14px; padding-bottom:6px; border-bottom:1px solid var(--border); scroll-margin-top:76px; }
+  h3 { font-size:17px; margin:28px 0 10px; scroll-margin-top:76px; } h4 { margin:0 0 5px; } a { color:var(--accent); }
+  code { background:var(--code-bg); padding:.15em .4em; border-radius:5px; font-size:.88em; font-family:"SF Mono",Menlo,Consolas,monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:var(--radius); padding:16px; overflow:auto; } pre code { background:none; padding:0; font-size:13px; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:14.5px; } th,td { text-align:left; padding:9px 12px; border:1px solid var(--border); vertical-align:top; } th { background:var(--accent-soft); font-weight:650; }
+  .callout { border:1px solid var(--border); border-left-width:4px; border-radius:10px; padding:12px 16px; margin:18px 0; background:var(--surface); } .callout .label { font-weight:700; font-size:13px; margin-bottom:2px; }
+  .callout.info { border-left-color:var(--info); background:var(--info-bg); } .callout.info .label { color:var(--info); } .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); } .callout.warn .label { color:var(--warn); }
+  .callout.ok { border-left-color:var(--ok); background:var(--ok-bg); } .callout.ok .label { color:var(--ok); } .callout.bad { border-left-color:var(--bad); background:var(--bad-bg); } .callout.bad .label { color:var(--bad); }
+  .option-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; margin:20px 0; } .option-card { border:1px solid var(--border); border-radius:var(--radius); padding:18px; background:var(--surface); box-shadow:var(--shadow); }
+  .option-card.pick { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),var(--shadow); } .tag { display:inline-block; font-size:11px; font-weight:700; color:var(--accent); background:var(--accent-soft); padding:2px 8px; border-radius:999px; margin-bottom:10px; }
+  details { border:1px solid var(--border); border-radius:10px; padding:0 16px; margin:16px 0; background:var(--surface); } details[open] { padding-bottom:8px; } summary { cursor:pointer; font-weight:650; padding:12px 0; }
+  .mermaid { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin:18px 0; text-align:center; }
+  .step { display:grid; grid-template-columns:42px 1fr; gap:12px; margin:18px 0; } .step-num { width:38px; height:38px; border-radius:50%; background:var(--accent); color:var(--bg); display:flex; align-items:center; justify-content:center; font-weight:800; }
+  .step h3 { margin:4px 0 6px; } .small { color:var(--muted); font-size:13px; } .mono { font-family:"SF Mono",Menlo,Consolas,monospace; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:13px; opacity:0; transition:.25s; } .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  footer { max-width:1160px; margin:0 auto; padding:24px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--border); }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; gap:0; } .toc { position:static; max-height:none; margin-bottom:24px; border:1px solid var(--border); border-radius:10px; padding:14px; } }
+  @media print { .topbar,.toc,.action,.toast { display:none!important; } .layout { display:block; padding:0; max-width:none; } .option-card,.callout,pre,.mermaid,details { box-shadow:none; break-inside:avoid; } body { background:#fff; } }
+</style>
+</head>
+<body>
+<header class="topbar"><span class="title">Email delivery primer for CVAT</span><span class="spacer"></span><button class="action" id="copyPromptBtn" type="button">Copy as prompt</button><button class="action" onclick="window.print()" type="button">Print / PDF</button></header>
+<div class="layout">
+<nav class="toc" aria-label="Table of contents"><div class="toc-title">On this page</div><div id="toc-list"></div></nav>
+<main class="content">
+  <h1>Email delivery primer for CVAT</h1>
+  <p class="doc-sub">SMTP submission, mailbox protocols, sender identity, DNS authentication, reputation, and a practical provider-selection workflow.</p>
+  <p class="doc-meta">2026-09-01 · Companion to the CVAT email-backend feasibility report · Current provider requirements checked</p>
+
+  <h2>The short mental model</h2>
+  <p>For CVAT, “email backend” means <strong>an outbound client connection to somebody else's mail submission service</strong>. CVAT renders a message and submits it to a trusted relay. That relay—not CVAT—does Internet mail routing, queues retries, signs DKIM, handles IP reputation, contacts recipient MX servers, and usually processes bounces.</p>
+  <div class="callout ok"><div class="label">What CVAT needs</div><p>One outbound SMTP submission endpoint, TLS, an allowed sender identity, and either SMTP credentials or an IP-authorized relay.</p></div>
+  <div class="callout info"><div class="label">What CVAT does not need</div><p>No inbound SMTP server, no port 25 exposed, no MX record for the CVAT host, and no POP3/IMAP account unless humans need to read replies.</p></div>
+
+  <pre class="mermaid">
+flowchart LR
+  CVAT[CVAT / Django] -->|SMTP submission<br/>587 STARTTLS or 465 TLS| MSA[Trusted provider relay / MSA]
+  MSA -->|SMTP transfer<br/>port 25| MX[Recipient domain MX]
+  MX --> FILTER[SPF + DKIM + DMARC<br/>reputation + content]
+  FILTER --> INBOX[Recipient mailbox]
+  INBOX -->|IMAP/POP/Webmail| USER[Recipient]
+  MSA --> BOUNCE[Bounces / complaints / suppression]
+  DNS[(Your DNS)] --> FILTER
+  DNS --> MSA
+  </pre>
+
+  <h2>SMTP versus IMAP and POP3</h2>
+  <table>
+    <thead><tr><th>Protocol</th><th>Purpose</th><th>Typical secure port</th><th>Role in CVAT</th></tr></thead>
+    <tbody>
+      <tr><td><strong>SMTP submission</strong></td><td>An application or mail client hands a new message to an authorized submission agent.</td><td>587 + STARTTLS, or 465 implicit TLS</td><td><strong>Required.</strong> This is Django's outbound connection.</td></tr>
+      <tr><td><strong>SMTP transfer</strong></td><td>Mail servers relay messages to other mail servers using DNS MX routing.</td><td>25, normally with opportunistic/required TLS depending on policy</td><td>Handled by the relay/provider, not CVAT.</td></tr>
+      <tr><td><strong>IMAP</strong></td><td>A client reads and manages server-side folders, flags, searches and message state.</td><td>993 implicit TLS</td><td>Not required to send. Useful only if someone reads replies in a mailbox.</td></tr>
+      <tr><td><strong>POP3</strong></td><td>A client retrieves messages from a maildrop, historically often downloading them locally.</td><td>995 implicit TLS</td><td>Not required and generally less useful than IMAP for a shared service mailbox.</td></tr>
+    </tbody>
+  </table>
+  <p>RFC 6409 deliberately separates submission from server-to-server relay: submission normally uses port 587, while relay remains on port 25. RFC 8314 recommends encrypted submission using STARTTLS on 587 or implicit TLS on 465. IMAP's own specification explicitly says that it does not post mail.</p>
+
+  <details>
+    <summary>What an SMTP submission conversation looks like</summary>
+    <pre><code class="language-text">S: 220 smtp.provider.example ESMTP ready
+C: EHLO cvat-server
+S: 250-STARTTLS
+S: 250-AUTH PLAIN LOGIN
+C: STARTTLS
+... TLS handshake; certificate is verified ...
+C: EHLO cvat-server
+C: AUTH ...
+C: MAIL FROM:&lt;bounces@bounce.notify.example.org&gt;
+C: RCPT TO:&lt;invitee@example.net&gt;
+C: DATA
+C: From: CVAT Notifications &lt;cvat@notify.example.org&gt;
+C: To: invitee@example.net
+C: Subject: You're invited ...
+C: DKIM-Signature: ...              # usually added by the relay
+C:
+C: HTML/plain message body
+C: .
+S: 250 accepted, queue id 12345</code></pre>
+    <p><code>MAIL FROM</code> is the SMTP envelope/return path used for bounces and SPF. The visible <code>From:</code> header is what the user sees and what DMARC protects. They can differ, but their domains need suitable alignment.</p>
+  </details>
+
+  <h2>Why legitimate mail still goes to spam</h2>
+  <p>A receiver makes a probabilistic policy decision. Authentication proves which domain authorized the message; it does not prove that the message is wanted. Inbox placement combines at least:</p>
+  <ul>
+    <li><strong>Authentication:</strong> SPF, DKIM and DMARC results and alignment.</li>
+    <li><strong>Infrastructure reputation:</strong> provider/IP history, forward and reverse DNS, TLS, stable HELO identity.</li>
+    <li><strong>Domain reputation:</strong> age, past complaints, consistent sender identity and link domains.</li>
+    <li><strong>Recipient behavior:</strong> spam complaints, deletions, replies and prior engagement.</li>
+    <li><strong>List hygiene:</strong> hard-bounce rate, unknown users, stale or scraped addresses.</li>
+    <li><strong>Message quality:</strong> accurate subject, sane HTML and preferably a plain-text alternative, non-deceptive display name, valid HTTPS links, and no unrelated marketing.</li>
+    <li><strong>Volume shape:</strong> no sudden bursts from a new domain or IP; respect throttling and temporary SMTP failures.</li>
+  </ul>
+  <div class="callout warn"><div class="label">No absolute guarantee</div><p>SPF/DKIM/DMARC are necessary identity controls, not an inbox-placement certificate. A perfectly authenticated message can still be spam if reputation or recipient feedback is poor. Conversely, CVAT invitations are naturally favorable traffic: low volume, transactional, user-initiated and clearly tied to an account action.</p></div>
+
+  <h2>Step 1 — choose the relay and sender identity</h2>
+  <div class="step"><div class="step-num">1</div><div><h3>Write down the workload</h3><p>CVAT sends transactional invitations and password resets, probably tens rather than thousands per day. You need external delivery, an identifiable sender, seven-day invitation links, and reliable bounce visibility. You do not need newsletter tooling or a dedicated IP.</p></div></div>
+  <div class="step"><div class="step-num">2</div><div><h3>Choose the visible identity before the vendor</h3><p>Pick a From address that recipients will trust and that the sending organization is authorized to use, such as <code>CVAT Notifications &lt;cvat-notify@research.example.edu&gt;</code>. Ideally, replies go to a monitored mailbox or support address. The website hostname <code>cvat-unina.duckdns.org</code> can stay in the invitation link; it does not have to be the email sender domain.</p></div></div>
+  <div class="step"><div class="step-num">3</div><div><h3>Ask the institution for an application relay</h3><p>An institutional relay can be the cleanest path because the institution already controls its DNS, DKIM signing, reputation and policies. Ask specifically for a <em>server/application SMTP relay</em> or service identity—not permission to store a personal mailbox password.</p></div></div>
+
+  <details open>
+    <summary>Questions to send to the mail administrator</summary>
+    <ol>
+      <li>Do you provide SMTP relay for a server application that sends low-volume transactional mail to external recipients?</li>
+      <li>What hostname, port and TLS mode must be used?</li>
+      <li>Is authentication by static source IP, SMTP username/password, client certificate, or OAuth2?</li>
+      <li>Which From addresses/domains are permitted? Can a service mailbox such as <code>cvat-notify@…</code> be created?</li>
+      <li>Will the relay add DKIM signatures and provide SPF/DMARC alignment for that From domain?</li>
+      <li>Are external recipients allowed? What are rate, recipient and message-size limits?</li>
+      <li>How are hard bounces, blocks and spam complaints reported or suppressed?</li>
+      <li>What credential-rotation, MFA, logging, retention and data-protection rules apply?</li>
+    </ol>
+  </details>
+
+  <div class="callout warn"><div class="label">Current UNINA-specific caution</div><p>Public UNINA material shows a transition toward Microsoft 365, OAuth2 and MFA; the student configuration published in 2025 uses <code>smtp.office365.com:587</code> with STARTTLS and OAuth2, and UNINA's MFA rollout targets October 2026. Django's stock SMTP backend exposes username/password authentication, not OAuth2. Therefore, do not assume that a personal UNINA account/password is a durable application credential. Ask CSI for a service relay or service identity with an explicitly supported application-authentication method. This is an inference from the public configuration; CSI must confirm the server-use policy.</p></div>
+
+  <div class="step"><div class="step-num">4</div><div><h3>If no institutional relay exists, use a transactional provider</h3><p>Choose a provider that supports ordinary SMTP credentials, domain verification, automatic DKIM, custom return-path alignment, bounce/complaint suppression, EU-appropriate data processing, and a sandbox/test mode. Amazon SES and Postmark are examples of the category, not automatic recommendations; they illustrate the common workflow of verifying a domain, publishing DNS records, issuing SMTP credentials and exiting a sandbox.</p></div></div>
+  <div class="step"><div class="step-num">5</div><div><h3>Avoid mailbox SMTP as the long-term default</h3><p>Submitting through a normal Google Workspace or Microsoft 365 mailbox can work at low volume, but it couples the application to a person/service mailbox, MFA/auth policy and per-user limits. Google offers an application relay, and Microsoft supports OAuth for SMTP AUTH; both are operationally different from a simple permanent password. A dedicated application relay or transactional SMTP credential is easier to rotate and audit.</p></div></div>
+  <div class="step"><div class="step-num">6</div><div><h3>Do not self-host the Internet-facing MTA</h3><p>Running Postfix is technically possible, but then you own port-25 egress, static IP reputation, PTR/rDNS, abuse handling, queues, retries, DKIM keys, blocklists, feedback loops and 24/7 operations. That is disproportionate for CVAT invitation volume.</p></div></div>
+
+  <h3>Provider route comparison</h3>
+  <div class="option-grid">
+    <div class="option-card pick"><span class="tag">First inquiry</span><h4>Institutional application relay</h4><ul><li>Best identity fit</li><li>Institution owns DNS and reputation</li><li>May require static IP or OAuth</li><li>Dependent on CSI policy/support</li></ul></div>
+    <div class="option-card"><h4>Transactional SMTP provider</h4><ul><li>Designed for application mail</li><li>Good bounce/suppression tooling</li><li>Requires vendor, DNS and DPA work</li><li>Usually easiest technical integration</li></ul></div>
+    <div class="option-card"><h4>Workspace mailbox submission</h4><ul><li>Quick for a controlled proof</li><li>Mailbox/rate/auth-policy coupling</li><li>Personal password is inappropriate</li><li>OAuth may need custom integration</li></ul></div>
+    <div class="option-card"><h4>Self-hosted MTA</h4><ul><li>Maximum control</li><li>Maximum deliverability burden</li><li>Requires static IP and rDNS</li><li>Not justified here</li></ul></div>
+  </div>
+
+  <h2>Step 2 — establish DNS authentication</h2>
+  <p>Three systems work together. The crucial mental model is that they authenticate different identifiers:</p>
+  <table>
+    <thead><tr><th>Mechanism</th><th>What it answers</th><th>Identifier checked</th><th>Who normally configures it</th></tr></thead>
+    <tbody>
+      <tr><td><strong>SPF</strong></td><td>“Is this connecting server allowed to send for this envelope domain?”</td><td>SMTP <code>MAIL FROM</code> domain (or HELO in special cases)</td><td>Domain owner publishes TXT; provider supplies the include/IPs or custom return-path.</td></tr>
+      <tr><td><strong>DKIM</strong></td><td>“Was this message signed by a key authorized by this domain, and did signed content survive transit?”</td><td><code>d=</code> signing domain and <code>s=</code> selector in <code>DKIM-Signature</code></td><td>Provider holds private key and signs; domain owner publishes public key/CNAME.</td></tr>
+      <tr><td><strong>DMARC</strong></td><td>“Does authenticated SPF or DKIM identity align with the visible author, and what should happen on failure?”</td><td>Visible RFC 5322 <code>From:</code> domain</td><td>Author-domain owner publishes policy and report destinations.</td></tr>
+    </tbody>
+  </table>
+
+  <pre class="mermaid">
+flowchart TD
+  MSG[Visible From: cvat@notify.example.org] --> DMARC{DMARC alignment}
+  SPF[SPF pass for<br/>bounce.notify.example.org] --> A1{Same organizational domain?}
+  DKIM[DKIM pass with<br/>d=notify.example.org] --> A2{Same organizational domain?}
+  A1 -->|yes| DMARC
+  A2 -->|yes| DMARC
+  DMARC -->|at least one aligned pass| PASS[DMARC pass]
+  DMARC -->|neither aligns| POLICY[p=none / quarantine / reject]
+  </pre>
+
+  <div class="step"><div class="step-num">1</div><div><h3>Select a domain or subdomain you can authorize</h3><p>For a third-party provider, a dedicated subdomain such as <code>notify.example.org</code> isolates transactional reputation and DNS records. You need administrative control of its DNS. If the From address is under <code>unina.it</code>, only UNINA administrators can authorize the provider and publish the required records.</p></div></div>
+  <div class="step"><div class="step-num">2</div><div><h3>Create the provider's domain identity</h3><p>In the provider console, add the exact sending domain. The provider will generate record names and values. Copy those exact values; do not invent production SPF or DKIM records from examples.</p></div></div>
+  <div class="step"><div class="step-num">3</div><div><h3>Publish DKIM first</h3><p>The provider usually gives one or more selector records such as <code>selector1._domainkey.notify.example.org</code>, often CNAMEs into provider-controlled DNS. The provider then signs each message with the corresponding private key. Selectors allow key rotation without changing the From address. Prefer 2048-bit keys where supported.</p></div></div>
+  <div class="step"><div class="step-num">4</div><div><h3>Configure SPF for the envelope domain</h3><p>Publish exactly one SPF policy at the domain used by the return path. A provider may ask for an <code>include:</code> mechanism or may configure a dedicated bounce subdomain. Never create two separate <code>v=spf1</code> TXT records at one name; merge authorized senders into one policy. SPF evaluation has a ten-DNS-lookup limit.</p></div></div>
+
+  <details>
+    <summary>Illustrative DNS only — provider values will differ</summary>
+    <pre><code class="language-zone">; DKIM — often a provider CNAME, sometimes a TXT public key
+selector1._domainkey.notify.example.org. CNAME selector1.provider.example.
+
+; SPF for an aligned custom return-path / bounce domain
+bounce.notify.example.org. TXT "v=spf1 include:spf.provider.example -all"
+
+; DMARC starts in monitoring mode
+_dmarc.notify.example.org. TXT "v=DMARC1; p=none; rua=mailto:dmarc-reports@example.org"
+
+; Provider-specific return-path routing may also require MX/CNAME records
+; Use exactly what the chosen relay generates.</code></pre>
+  </details>
+
+  <div class="step"><div class="step-num">5</div><div><h3>Publish DMARC in monitoring mode</h3><p>Start with <code>p=none</code> and aggregate reports to a mailbox or report processor that can handle XML. Confirm every legitimate sender for the domain passes and aligns. After observation, move deliberately toward <code>quarantine</code> and eventually <code>reject</code> if organizational policy permits. The current DMARC standard is RFC 9989, with aggregate reporting specified separately by RFC 9990.</p></div></div>
+  <div class="step"><div class="step-num">6</div><div><h3>Verify alignment, not merely pass/fail</h3><p>A message can show <code>spf=pass</code> for a provider-owned bounce domain yet fail DMARC because that domain does not align with the visible From. DKIM is often the easiest aligned path: the provider signs with <code>d=notify.example.org</code>. Configure a custom return path too when available so SPF also aligns.</p></div></div>
+  <div class="step"><div class="step-num">7</div><div><h3>Let the provider own IP/rDNS reputation</h3><p>Receivers require sensible forward and reverse DNS for the sending IP. With a transactional or institutional relay, that is the relay operator's job. With self-hosting it becomes your job, including obtaining a PTR record from the IP owner—one reason not to self-host.</p></div></div>
+  <div class="step"><div class="step-num">8</div><div><h3>Send cross-provider tests and inspect headers</h3><p>Deliver a controlled invitation to Gmail, Outlook and an institutional mailbox. Open the original headers and look for results equivalent to:</p>
+  <pre><code class="language-text">Authentication-Results: ...;
+    spf=pass smtp.mailfrom=bounce.notify.example.org;
+    dkim=pass header.d=notify.example.org;
+    dmarc=pass header.from=notify.example.org</code></pre>
+  <p>Also verify TLS, visible From/Reply-To, public HTTPS invitation URL, HTML rendering, and that the provider records a delivery event rather than only “accepted for queueing.” CVAT's current invitation template is HTML-only; a plain-text alternative would be a useful later improvement.</p></div></div>
+
+  <h2>Reputation and ongoing hygiene</h2>
+  <p>Google and Yahoo require at least SPF or DKIM for all senders and publish stricter requirements for bulk senders; both call for low complaint rates, valid forward/reverse DNS and RFC-compliant messages. Microsoft likewise enforces SPF, DKIM and DMARC for high-volume Outlook.com senders. CVAT's expected volume is far below those bulk thresholds, but configuring all three correctly from day one is the sensible baseline.</p>
+  <ul>
+    <li>Use one stable, accurate display name and From address for CVAT transactional mail.</li>
+    <li>Never mix marketing content into invitations or password resets.</li>
+    <li>Send only as the result of an administrator's legitimate invite action.</li>
+    <li>Suppress hard-bouncing addresses and investigate repeated temporary failures.</li>
+    <li>Monitor provider delivery, bounce and complaint dashboards; CVAT currently does not ingest provider webhooks.</li>
+    <li>Keep spam complaints well below 0.3%; Google recommends staying below 0.1% and never reaching 0.3%.</li>
+    <li>Do not “warm” by manufacturing mail. At this volume, begin with genuine controlled invitations and avoid bursts.</li>
+    <li>Use a monitored Reply-To if recipients may reasonably need help. Transactional account invitations do not need marketing unsubscribe links.</li>
+  </ul>
+
+  <h2>Security implications</h2>
+  <ul>
+    <li><strong>TLS is hop-by-hop, not end-to-end.</strong> It protects CVAT-to-relay transport and usually relay-to-recipient transport, but the message exists in plaintext at endpoints and mail servers.</li>
+    <li><strong>The invitation URL is a bearer secret.</strong> CVAT uses a random key and a seven-day expiry. Do not include it in application logs or provider metadata beyond the message body.</li>
+    <li><strong>Use a service credential.</strong> Store it as a Compose secret, scope it to sending, rotate it, and never use a personal UNINA password.</li>
+    <li><strong>Prefer domain verification over single-address spoofing.</strong> A provider should sign on behalf of a domain you are authorized to use.</li>
+    <li><strong>Bounces may contain personal data.</strong> Review provider retention, region, webhook security and the applicable data-processing agreement.</li>
+  </ul>
+
+  <h2>A practical decision sequence for this CVAT</h2>
+  <ol>
+    <li>Ask CSI the eight relay questions above, emphasizing “server application,” external recipients, DKIM/DMARC alignment, and a dedicated service sender.</li>
+    <li>If CSI supplies a username/password or IP-authorized TLS relay compatible with Django, use it.</li>
+    <li>If CSI supplies OAuth2-only SMTP, decide between a small OAuth-capable Django backend and a transactional provider; stock Django SMTP is not enough.</li>
+    <li>If CSI cannot authorize this workload, choose a transactional provider and a domain/subdomain whose DNS you control.</li>
+    <li>Publish provider-generated DKIM and return-path/SPF records, then DMARC <code>p=none</code> with reporting.</li>
+    <li>Verify provider-side domain status and test SMTP/TLS from the CVAT host before touching production settings.</li>
+    <li>Configure CVAT, send controlled cross-provider invitations, inspect authentication headers, then resend the one existing pending invitation.</li>
+  </ol>
+
+  <div class="callout ok"><div class="label">Likely best outcome</div><p>A CSI-managed application relay with an authorized <code>@unina.it</code> service address is best if available and compatible. Otherwise, a transactional SMTP provider plus a domain/subdomain you control is technically straightforward and avoids coupling CVAT to a personal mailbox or Microsoft/Google user-auth lifecycle.</p></div>
+
+  <h2>Standards and current provider guidance</h2>
+  <ul>
+    <li><a href="https://www.rfc-editor.org/info/rfc6409/">RFC 6409 — message submission versus relay</a></li>
+    <li><a href="https://www.rfc-editor.org/info/rfc8314/">RFC 8314 — TLS for submission and mailbox access</a></li>
+    <li><a href="https://www.rfc-editor.org/info/rfc9051/">RFC 9051 — IMAP4rev2</a> and <a href="https://www.rfc-editor.org/info/rfc1939/">RFC 1939 — POP3</a></li>
+    <li><a href="https://www.rfc-editor.org/info/rfc7208/">RFC 7208 — SPF</a>; <a href="https://www.rfc-editor.org/info/rfc6376/">RFC 6376 — DKIM</a>; <a href="https://www.rfc-editor.org/info/rfc9989/">RFC 9989 — DMARC</a>; <a href="https://www.rfc-editor.org/info/rfc9990/">RFC 9990 — DMARC aggregate reports</a></li>
+    <li><a href="https://support.google.com/mail/answer/81126">Google sender guidelines</a>; <a href="https://senders.yahooinc.com/best-practices/">Yahoo sender best practices</a>; <a href="https://support.microsoft.com/en-us/outlook/fix-ndr-error-550-5-7-515-in-outlook-com">Microsoft high-volume authentication requirements</a></li>
+    <li><a href="https://support.google.com/a/answer/176600">Google Workspace application SMTP options</a>; <a href="https://learn.microsoft.com/en-us/exchange/clients-and-mobile-in-exchange-online/authenticated-client-smtp-submission">Microsoft 365 SMTP AUTH</a></li>
+    <li><a href="https://www.csi.unina.it/mfa">UNINA MFA transition</a> and the <a href="https://softwaresso.unina.it/MyAtStudenti/CSI-SISTEMI_ModalitaAccessoPostaElettronicaO365_stud_it.pdf">published Microsoft 365 mail-client parameters</a></li>
+    <li><a href="2026-09-01-cvat-email-backend-feasibility.html">Companion CVAT implementation feasibility report</a></li>
+  </ul>
+</main>
+</div>
+<footer>Email delivery primer · plan-as-html · 2026-09-01</footer>
+<div class="toast" id="toast">Copied to clipboard</div>
+<script type="text/plain" id="prompt-seed">
+Re: the email delivery primer for CVAT (SMTP relay choice plus SPF/DKIM/DMARC setup).
+I've read it. I want to work through this decision or DNS design next:
+-
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js" integrity="sha512-5TKaYvhenABhlGIKSxAWLFJBZCSQw7HTV7aL1dJcBokM/+3PNtfgJFlv8E6Us/B1VMlQ4u8sPzjudL9TEQ06ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"default"});</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>hljs.highlightAll();</script>
+<script>
+(function(){const content=document.querySelector(".content"),list=document.getElementById("toc-list"),heads=content.querySelectorAll("h2,h3"),slug=t=>t.toLowerCase().trim().replace(/[^\w\s-]/g,"").replace(/\s+/g,"-").slice(0,60),seen={};heads.forEach(h=>{let id=h.id||slug(h.textContent);if(seen[id])id=id+"-"+(++seen[id]);else seen[id]=1;h.id=id;const a=document.createElement("a");a.href="#"+id;a.textContent=h.textContent;a.className=h.tagName==="H3"?"h3":"";list.appendChild(a);});const links=Array.from(list.querySelectorAll("a")),byId=Object.fromEntries(links.map(a=>[a.getAttribute("href").slice(1),a]));const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.remove("active"));(byId[e.target.id]||{}).classList?.add("active");}}),{rootMargin:"-72px 0px -70% 0px"});heads.forEach(h=>obs.observe(h));async function copyText(t){try{await navigator.clipboard.writeText(t);return true;}catch(_){const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy");}catch(e){}document.body.removeChild(ta);return ok;}}const toast=document.getElementById("toast");document.getElementById("copyPromptBtn").addEventListener("click",async()=>{const ok=await copyText(document.getElementById("prompt-seed").textContent.trim());toast.textContent=ok?"Copied — paste it back to revise":"Copy failed";toast.classList.add("show");setTimeout(()=>toast.classList.remove("show"),2200);});})();
+</script>
+</body>
+</html>

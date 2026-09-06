@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<!--
+  plan-as-html template scaffold.
+  HOW TO USE:
+    1. Replace SAM3 text prompts in CVAT, {{SUBTITLE}}, 2026-09-03, {{META}} and the #prompt-seed block.
+    2. Replace everything inside <main class="content"> with your real content.
+    3. Keep the components you need (callout / option-grid / mermaid / details / code);
+       delete the rest. The example blocks below show each one in use.
+    4. The table of contents auto-builds from <h2>/<h3> inside .content — just write headings.
+    5. Save to docs/plans/<YYYY-MM-DD>-<slug>.html in the project.
+  This is ONE self-contained file. CSS + JS are inline; Mermaid + highlight.js load from CDN
+  (pinned with SRI integrity hashes — if you bump a version, update the integrity= hash too,
+  or the browser will refuse to load the resource).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAM3 text prompts in CVAT</title>
+
+<!-- highlight.js theme (light + dark) — pinned with SRI integrity hashes -->
+
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --surface: #ffffff;
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #e3e6ea;
+    --accent: #4f46e5;
+    --accent-soft: #eef0fe;
+    --code-bg: #f5f6f8;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --maxw: 820px;
+    --radius: 12px;
+    --info: #2563eb;   --info-bg: #eef4ff;
+    --warn: #b45309;   --warn-bg: #fff7ed;
+    --ok:   #047857;   --ok-bg:   #ecfdf5;
+    --bad:  #b91c1c;   --bad-bg:  #fef2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --surface: #161922; --text: #e6e8eb; --muted: #9aa4b2;
+      --border: #262b36; --accent: #8b89ff; --accent-soft: #1e2030; --code-bg: #1b1f29;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 20px rgba(0,0,0,.3);
+      --info-bg:#13213b; --warn-bg:#2a1f12; --ok-bg:#0e231c; --bad-bg:#2a1416;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+  .topbar .spacer { flex: 1; }
+  .action {
+    font: inherit; font-size: 13px; font-weight: 550; cursor: pointer;
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); transition: .15s;
+  }
+  .action:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Layout: sidebar TOC + content */
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px; max-width: 1140px; margin: 0 auto; padding: 40px 24px 96px; }
+  .toc { position: sticky; top: 76px; align-self: start; font-size: 13.5px; max-height: calc(100vh - 100px); overflow: auto; }
+  .toc-title { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--muted); margin: 0 0 10px 4px; }
+  .toc a { display: block; color: var(--muted); text-decoration: none; padding: 4px 10px; border-radius: 7px; border-left: 2px solid transparent; line-height: 1.4; }
+  .toc a:hover { color: var(--text); background: var(--accent-soft); }
+  .toc a.h3 { padding-left: 22px; font-size: 12.5px; }
+  .toc a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+
+  .content { min-width: 0; }
+  .content > *:first-child { margin-top: 0; }
+  h1 { font-size: 30px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
+  .doc-sub { color: var(--muted); font-size: 16px; margin: 0 0 4px; }
+  .doc-meta { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+  h2 { font-size: 22px; letter-spacing: -.01em; margin: 44px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); scroll-margin-top: 76px; }
+  h3 { font-size: 17px; margin: 28px 0 10px; scroll-margin-top: 76px; }
+  p, li { color: var(--text); }
+  a { color: var(--accent); }
+  code { background: var(--code-bg); padding: .15em .4em; border-radius: 5px; font-size: .88em; font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; overflow: auto; }
+  pre code { background: none; padding: 0; font-size: 13px; line-height: 1.5; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-soft); font-weight: 600; }
+
+  /* Callouts */
+  .callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 12px 16px; margin: 18px 0; background: var(--surface); }
+  .callout .label { font-weight: 650; font-size: 13px; margin-bottom: 2px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.info { border-left-color: var(--info); background: var(--info-bg); } .callout.info .label { color: var(--info); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); } .callout.warn .label { color: var(--warn); }
+  .callout.ok   { border-left-color: var(--ok);   background: var(--ok-bg);   } .callout.ok .label   { color: var(--ok); }
+  .callout.bad  { border-left-color: var(--bad);  background: var(--bad-bg);  } .callout.bad .label  { color: var(--bad); }
+
+  /* Option grid — the key "compare N approaches" component */
+  .option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
+  .option-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; background: var(--surface); box-shadow: var(--shadow); }
+  .option-card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .option-card h4 { margin: 0 0 4px; font-size: 16px; }
+  .option-card .tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; margin-bottom: 10px; }
+  .option-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 14px; }
+  .option-card .pro::marker { content: "✓ "; } .option-card .pro { color: var(--ok); }
+  .option-card .con::marker { content: "✗ "; } .option-card .con { color: var(--bad); }
+  .option-card .pro span, .option-card .con span { color: var(--text); }
+
+  details { border: 1px solid var(--border); border-radius: 10px; padding: 0 16px; margin: 16px 0; background: var(--surface); }
+  details[open] { padding-bottom: 8px; }
+  summary { cursor: pointer; font-weight: 600; padding: 12px 0; list-style-position: inside; }
+  summary:hover { color: var(--accent); }
+
+  .mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 18px 0; text-align: center; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 550; opacity: 0; pointer-events: none; transition: .25s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer { max-width: 1140px; margin: 0 auto; padding: 24px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); }
+
+  /* Responsive: drop the sidebar, show a collapsible TOC up top */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  }
+  /* Print */
+  @media print {
+    .topbar, .toc, .action, .toast { display: none !important; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .option-card, .callout, pre, .mermaid, details { box-shadow: none; break-inside: avoid; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="title">SAM3 text prompts in CVAT</span>
+  <span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+
+<div class="layout">
+  <!-- TOC auto-populates from headings; on mobile it becomes this collapsible box -->
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-title">On this page</div>
+    <div id="toc-list"></div>
+  </nav>
+
+  <main class="content">
+    <h1>SAM3 text prompts in CVAT</h1>
+    <p class="doc-sub">Describe objects, preview separate masks, then accept them.</p>
+    <p class="doc-meta">3 September 2026 · CVAT fork · Deployed and verified at 10:58 CEST</p>
+    <p>The existing Segment Anything 3 interactor now supports a Text mode for the current frame or a selected region. Each matching instance becomes a separate preview mask using the selected task label. The deployment includes the earlier optional-box-to-points fix.</p>
+    <div class="callout ok"><div class="label">Live</div><p>The SAM3 function and UI are deployed. Text, ROI, and point inference passed through the live CVAT gateway; the public UI bundle matches the verified candidate. The other 22 containers are unchanged.</p></div>
+    <h2>Using Text mode</h2>
+    <ol>
+      <li>Save current work and hard-refresh CVAT with <strong>Ctrl+Shift+R</strong>.</li>
+      <li>Open <strong>AI Tools → Interactors → Segment Anything 3</strong> and choose <strong>Text</strong>.</li>
+      <li>Select the task label and enter a short phrase describing one concept, such as <strong>red circles</strong>. Optionally restrict inference to an ROI.</li>
+      <li>Click <strong>Find masks</strong>. Review the separate instances and adjust the confidence threshold if needed.</li>
+      <li>Click <strong>Done</strong> to add the displayed masks, then use CVAT's normal <strong>Save</strong>. <strong>Esc</strong> discards the preview.</li>
+    </ol>
+    <h2>Accepted behavior</h2>
+    <table><thead><tr><th>Control</th><th>Behavior</th></tr></thead><tbody>
+      <tr><td>Text prompt</td><td>One trimmed, nonempty phrase, up to 256 characters. All returned instances use the selected task label.</td></tr>
+      <tr><td>Confidence</td><td>Initial display threshold 0.5; slider range 0.2–0.9. The processor returns candidates from 0.2. Lowering the threshold can reveal weaker or overlapping predictions.</td></tr>
+      <tr><td>ROI</td><td>CVAT crops the frame for inference and translates masks back to full-image coordinates.</td></tr>
+      <tr><td>Preview</td><td>Done accepts the displayed masks separately. Esc, changing frame/job, or switching tools discards the active preview and invalidates late responses.</td></tr>
+      <tr><td>Repeat</td><td>The N shortcut restores the last started interactor setup, including its prompt, mode, label, and ROI.</td></tr>
+      <tr><td>Points / box</td><td>Available as the existing visual mode, including optional starting box followed by point refinement.</td></tr>
+    </tbody></table>
+    <p>This first version does not refine individual text-result masks with point prompts. Text and visual prompts are separate modes.</p>
+    <h2>Verification</h2>
+    <table><thead><tr><th>Boundary</th><th>Evidence</th></tr></thead><tbody>
+      <tr><td>Focused regressions</td><td>38 SAM3 Python tests, 16 text controller tests, and 5 optional-box controller tests passed.</td></tr>
+      <tr><td>Build and review</td><td>Production UI build and lint passed. Independent specification and code-quality reviews passed.</td></tr>
+      <tr><td>Browser workflow</td><td>23 checks using real React/AntD. Canvas, API, and persistence boundaries were mocked.</td></tr>
+      <tr><td>Candidate GPU</td><td>Real checkpoint and candidate image: multiple instances, absent concepts, changed images, and alternating text/visual requests passed.</td></tr>
+      <tr><td>Deployed inference</td><td>Real CVAT LambdaFunction and HTTP gateway to the deployed Nuclio function. Two red-circle instances exceeded 0.5; an absent concept returned no masks; ROI coordinates, point inclusion/exclusion, and repeated text passed. Synthetic frame provider; zero database queries.</td></tr>
+      <tr><td>Public deployment</td><td>Local/public index, bundle, and API returned HTTP 200. Bundle SHA-256 matched the container; all 24 containers running and every reported health check healthy.</td></tr>
+    </tbody></table>
+    <p>The production probe did not create annotations in a real job. The synthetic ROI prediction scored 0.324, demonstrating why the confidence slider matters for weaker matches.</p>
+    <h2>Implementation</h2>
+    <details><summary>Capability, request, and response contracts</summary>
+      <p>The function advertises <code>text_prompt</code> as a text field in its existing <code>extra_params_schema</code>. The UI exposes Text mode only for functions declaring that capability. Existing backend extra-parameter forwarding and ROI handling carry the request.</p>
+      <p>SAM3 uses the same loaded model and checkpoint for its interactive predictor and image processor. Each text request receives fresh image state. The handler returns separate masks as tight-bounds row-major RLE with confidence attributes; visual requests preserve the legacy single-mask response.</p>
+      <p>Empty, non-string, oversized, or mixed text/visual requests return HTTP 400. Native bfloat16 scores are converted to float before NumPy conversion.</p>
+    </details>
+    <h2>Deployment and rollback</h2>
+    <details><summary>Deployed artifacts and saved rollback versions</summary>
+      <p><strong>UI:</strong> <code>cvat/ui:sam3-text-prompts-20260903</code>, also tagged <code>cvat/ui:dev</code>.</p>
+      <pre><code>sha256:fec7a46ac8ae552ec27c22c15d1505125f6a9351339f2519516ba1ee57da6f66</code></pre>
+      <p><strong>SAM3:</strong> <code>cvat.pth.facebookresearch.sam3.interactor:text-prompts-20260903</code>.</p>
+      <pre><code>sha256:8eeaaf38d4f9bad8ace411759448159bde9bd1342312bbe1c823674f1f1f5a7d</code></pre>
+      <p>Runtime configuration: <code>/data/cvat/data/deployments/sam3/function-runtime.yaml</code>. This references the prepared image and has no build section. Nuclio skipped the build and deployed successfully.</p>
+      <p>Rollback UI tag: <code>cvat/ui:rollback-before-sam3-text-20260903</code>. Rollback SAM3 configuration: <code>/data/cvat/data/deployments/sam3/function-rollback-before-text-prompts-20260903.yaml</code>.</p>
+      <p>The durable receipt contains image IDs, inference results, HTTP checks, rollback references, and the exact production Compose arguments: <code>/data/cvat/data/deployments/sam3/text-prompts-deployment-20260903.json</code>.</p>
+    </details>
+    <p>Source remains uncommitted in <code>/data/cvat/.worktrees/sam3-text-prompts</code>, branch <code>feat/sam3-text-prompts</code>. Deployment was explicitly authorized; no commit, merge, or push occurred.</p>
+  </main>
+</div>
+
+<footer>Prepared with Codex · plan-as-html · 2026-09-03</footer>
+
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<!-- Re-prompt seed: fill with a 1–3 line summary + an edit stub. Powers "Copy as prompt". -->
+<script type="text/plain" id="prompt-seed">SAM3 Text mode is deployed in CVAT: current frame or ROI, separate masks, confidence filter, Done or Esc. Source is uncommitted on feat/sam3-text-prompts. I want to change: </script>
+
+<!-- TOC build, scroll-spy, copy-as-prompt -->
+<script>
+  (function () {
+    // Build the table of contents from h2/h3 in .content
+    const content = document.querySelector(".content");
+    const list = document.getElementById("toc-list");
+    const heads = content.querySelectorAll("h2, h3");
+    const slug = (t) => t.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").slice(0, 60);
+    const seen = {};
+    heads.forEach((h) => {
+      let id = h.id || slug(h.textContent);
+      if (seen[id]) id = id + "-" + (++seen[id]); else seen[id] = 1;
+      h.id = id;
+      const a = document.createElement("a");
+      a.href = "#" + id; a.textContent = h.textContent;
+      a.className = h.tagName === "H3" ? "h3" : "";
+      list.appendChild(a);
+    });
+
+    // Scroll-spy: highlight the current section in the TOC
+    const links = Array.from(list.querySelectorAll("a"));
+    const byId = Object.fromEntries(links.map((a) => [a.getAttribute("href").slice(1), a]));
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          links.forEach((l) => l.classList.remove("active"));
+          (byId[e.target.id] || {}).classList?.add("active");
+        }
+      });
+    }, { rootMargin: "-72px 0px -70% 0px" });
+    heads.forEach((h) => obs.observe(h));
+
+    // Copy as prompt (with file:// fallback)
+    async function copyText(text) {
+      try { await navigator.clipboard.writeText(text); return true; }
+      catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta); return ok;
+      }
+    }
+    const toast = document.getElementById("toast");
+    document.getElementById("copyPromptBtn").addEventListener("click", async () => {
+      const seed = (document.getElementById("prompt-seed").textContent || "").trim();
+      const ok = await copyText(seed);
+      toast.textContent = ok ? "Copied — paste it back to Codex to revise" : "Copy failed — select the text manually";
+      toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 2200);
+    });
+  })();
+</script>
+</body>
+</html>

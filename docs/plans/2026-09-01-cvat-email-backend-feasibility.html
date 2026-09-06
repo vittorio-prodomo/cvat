@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT email backend feasibility</title>
+<link rel="stylesheet" media="(prefers-color-scheme: light)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" integrity="sha512-rO+olRTkcf304DQBxSWxln8JXCzTHlKnIdnMUwYvQa9/Jd4cQaNkItIUj6Z4nvW1dqK0SKXLbn9h4KwZTNtAyw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<style>
+  :root {
+    --bg:#f7f8fa; --surface:#fff; --text:#1f2937; --muted:#667085; --border:#dfe3e8;
+    --accent:#e85d04; --accent-soft:#fff3e8; --code-bg:#f4f5f7; --shadow:0 2px 16px rgba(15,23,42,.07);
+    --info:#2563eb; --info-bg:#eff6ff; --warn:#b45309; --warn-bg:#fff7ed;
+    --ok:#047857; --ok-bg:#ecfdf5; --bad:#b91c1c; --bad-bg:#fef2f2; --radius:12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --surface:#171a21; --text:#e5e7eb; --muted:#9ca3af; --border:#2b303b;
+      --accent:#ff8a3d; --accent-soft:#302118; --code-bg:#1d212a; --shadow:0 2px 20px rgba(0,0,0,.35);
+      --info-bg:#13213b; --warn-bg:#2a1f12; --ok-bg:#0e231c; --bad-bg:#2a1416; }
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  .topbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px; padding:12px 24px;
+    background:color-mix(in srgb,var(--bg) 88%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+  .topbar .title { font-weight:700; font-size:15px; } .topbar .spacer { flex:1; }
+  .action { font:inherit; font-size:13px; font-weight:600; cursor:pointer; padding:6px 12px; border-radius:8px;
+    border:1px solid var(--border); background:var(--surface); color:var(--text); }
+  .action:hover { border-color:var(--accent); color:var(--accent); }
+  .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:40px; max-width:1160px; margin:0 auto; padding:40px 24px 96px; }
+  .toc { position:sticky; top:76px; align-self:start; font-size:13.5px; max-height:calc(100vh - 100px); overflow:auto; }
+  .toc-title { text-transform:uppercase; letter-spacing:.08em; font-size:11px; color:var(--muted); margin:0 0 10px 4px; }
+  .toc a { display:block; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:7px; border-left:2px solid transparent; line-height:1.4; }
+  .toc a:hover,.toc a.active { color:var(--accent); background:var(--accent-soft); border-left-color:var(--accent); }
+  .toc a.h3 { padding-left:22px; font-size:12.5px; }
+  .content { min-width:0; } h1 { font-size:32px; line-height:1.15; letter-spacing:-.025em; margin:0 0 6px; }
+  .doc-sub { color:var(--muted); font-size:17px; margin:0 0 4px; } .doc-meta { color:var(--muted); font-size:13px; margin:0 0 28px; }
+  h2 { font-size:22px; margin:44px 0 14px; padding-bottom:6px; border-bottom:1px solid var(--border); scroll-margin-top:76px; }
+  h3 { font-size:17px; margin:28px 0 10px; scroll-margin-top:76px; } h4 { margin:0 0 5px; }
+  a { color:var(--accent); } code { background:var(--code-bg); padding:.15em .4em; border-radius:5px; font-size:.88em; font-family:"SF Mono",Menlo,Consolas,monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:var(--radius); padding:16px; overflow:auto; }
+  pre code { background:none; padding:0; font-size:13px; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:14.5px; } th,td { text-align:left; padding:9px 12px; border:1px solid var(--border); vertical-align:top; }
+  th { background:var(--accent-soft); font-weight:650; }
+  .callout { border:1px solid var(--border); border-left-width:4px; border-radius:10px; padding:12px 16px; margin:18px 0; background:var(--surface); }
+  .callout .label { font-weight:700; font-size:13px; margin-bottom:2px; } .callout p:last-child { margin-bottom:0; }
+  .callout.info { border-left-color:var(--info); background:var(--info-bg); } .callout.info .label { color:var(--info); }
+  .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); } .callout.warn .label { color:var(--warn); }
+  .callout.ok { border-left-color:var(--ok); background:var(--ok-bg); } .callout.ok .label { color:var(--ok); }
+  .callout.bad { border-left-color:var(--bad); background:var(--bad-bg); } .callout.bad .label { color:var(--bad); }
+  .option-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; margin:20px 0; }
+  .option-card { border:1px solid var(--border); border-radius:var(--radius); padding:18px; background:var(--surface); box-shadow:var(--shadow); }
+  .option-card.pick { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),var(--shadow); }
+  .tag { display:inline-block; font-size:11px; font-weight:700; color:var(--accent); background:var(--accent-soft); padding:2px 8px; border-radius:999px; margin-bottom:10px; }
+  .metric { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:20px 0; }
+  .metric > div { border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:14px; text-align:center; }
+  .metric strong { display:block; font-size:20px; color:var(--accent); } .metric span { font-size:12px; color:var(--muted); }
+  details { border:1px solid var(--border); border-radius:10px; padding:0 16px; margin:16px 0; background:var(--surface); }
+  details[open] { padding-bottom:8px; } summary { cursor:pointer; font-weight:650; padding:12px 0; }
+  .mermaid { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin:18px 0; text-align:center; }
+  .checklist li { margin:.45rem 0; } .small { color:var(--muted); font-size:13px; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:13px; opacity:0; transition:.25s; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  footer { max-width:1160px; margin:0 auto; padding:24px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--border); }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; gap:0; } .toc { position:static; max-height:none; margin-bottom:24px; border:1px solid var(--border); border-radius:10px; padding:14px; } .metric { grid-template-columns:1fr; } }
+  @media print { .topbar,.toc,.action,.toast { display:none!important; } .layout { display:block; padding:0; max-width:none; } .option-card,.callout,pre,.mermaid,details { box-shadow:none; break-inside:avoid; } body { background:#fff; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="title">CVAT email backend feasibility</span><span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents"><div class="toc-title">On this page</div><div id="toc-list"></div></nav>
+  <main class="content">
+    <h1>CVAT email backend feasibility</h1>
+    <p class="doc-sub">Why organization invitations fail today, what enabling production mail requires, and a low-risk implementation path.</p>
+    <p class="doc-meta">2026-09-01 · Live checkout <code>1ba5b66b1</code> · Live Compose deployment inspected · Research only, not implemented</p>
+
+    <h2>Executive summary</h2>
+    <p><strong>This is highly feasible and does not require building an email system.</strong> CVAT already creates invitation messages, renders the HTML template, generates the acceptance link, tracks send time and expiry, and calls Django's mail API. The failure is deliberate: production settings set <code>EMAIL_BACKEND = None</code>, and the running container confirms that no SMTP host, credentials, sender, TLS mode, or timeout has been configured.</p>
+    <p>The recommended implementation is a small, provider-neutral production settings module that enables Django's built-in SMTP backend from validated environment variables and reads the SMTP password from a Compose secret file. Only <code>cvat_server</code> needs the secret because the current send paths are synchronous web requests. The main work outside CVAT is obtaining an authorized SMTP relay or transactional provider, authenticating the sender domain, and testing deliverability.</p>
+
+    <div class="callout ok">
+      <div class="label">Feasibility verdict</div>
+      <p><strong>High feasibility / low application-code risk / moderate operational dependency.</strong> No database migration, UI feature, custom mail library, or worker queue is needed for the first production slice.</p>
+    </div>
+
+    <div class="metric">
+      <div><strong>Small</strong><span>CVAT code/config change</span></div>
+      <div><strong>Moderate</strong><span>SMTP, DNS and secret setup</span></div>
+      <div><strong>Reversible</strong><span>One server recreate to roll back</span></div>
+    </div>
+
+    <h2>What is happening now</h2>
+    <table>
+      <thead><tr><th>Observation</th><th>Evidence</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Backend deliberately disabled</td><td><code>cvat/settings/base.py</code> assigns <code>EMAIL_BACKEND = None</code>.</td><td>CVAT treats missing mail configuration as an explicit deployment state.</td></tr>
+        <tr><td>Toast is expected</td><td><code>Invitation.send()</code> raises <code>ImproperlyConfigured</code>; create/resend endpoints translate it to HTTP 500, “Email backend is not configured.”</td><td>The browser is accurately reporting a backend configuration guard.</td></tr>
+        <tr><td>Mail feature already exists</td><td>CVAT uses django-allauth's adapter with subject and HTML templates under <code>cvat/apps/organizations/templates/invitation/</code>.</td><td>No invitation UI or message-composition implementation is missing.</td></tr>
+        <tr><td>Live settings are defaults</td><td><code>EMAIL_BACKEND=None</code>, host <code>localhost</code>, port <code>25</code>, no user/password, no TLS/SSL, sender <code>webmaster@localhost</code>, timeout <code>None</code>.</td><td>Simply setting a password is insufficient; a complete settings overlay is required.</td></tr>
+        <tr><td>One failed invitation is retained</td><td>Live aggregate query: 10 invitations total; 1 pending with <code>sent_date IS NULL</code>; 0 pending previously sent.</td><td>After SMTP works, resend the existing pending invitation instead of creating a duplicate.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <div class="label">Important invitation behavior</div>
+      <p>The default <code>ORG_INVITATION_CONFIRM = "No"</code> means an existing CVAT user is added immediately without an email. A new/unregistered address receives an invitation because CVAT creates a placeholder account. If every invitee—including existing users—must receive and explicitly accept an invitation, enabling <code>ORG_INVITATION_CONFIRM</code> is a separate behavior decision.</p>
+    </div>
+
+    <h3>Current request path</h3>
+    <pre class="mermaid">
+sequenceDiagram
+  participant Owner as Organization owner
+  participant API as CVAT API
+  participant DB as PostgreSQL
+  participant Mail as Django email backend
+  Owner->>API: POST /api/invitations
+  API->>DB: Create membership + invitation
+  API->>Mail: Send rendered invitation
+  Mail--xAPI: EMAIL_BACKEND is None
+  API-->>Owner: HTTP 500 + toast
+  Note over DB: Pending record remains unsent
+    </pre>
+
+    <h2>Options considered</h2>
+    <div class="option-grid">
+      <div class="option-card pick">
+        <span class="tag">Recommended</span>
+        <h4>Existing SMTP relay or transactional SMTP</h4>
+        <p>Use Django's built-in SMTP backend with an institutional relay if available; otherwise use a reputable transactional provider's SMTP endpoint.</p>
+        <ul><li>Smallest CVAT change</li><li>No new Python dependency</li><li>Provider-neutral and easy to test</li><li>Requires credentials and sender-domain work</li></ul>
+      </div>
+      <div class="option-card">
+        <h4>Provider HTTP API backend</h4>
+        <p>Write or install a provider-specific Django backend that calls an email API.</p>
+        <ul><li>Potentially richer telemetry</li><li>More code, dependencies and lock-in</li><li>Unnecessary at current invitation volume</li></ul>
+      </div>
+      <div class="option-card">
+        <h4>Self-hosted Postfix relay</h4>
+        <p>Operate an MTA beside CVAT and relay mail from Django to it.</p>
+        <ul><li>Full infrastructure control</li><li>Highest security, reputation and maintenance burden</li><li>Not recommended unless such an MTA already exists</li></ul>
+      </div>
+      <div class="option-card">
+        <h4>Console/file backend</h4>
+        <p>Render messages to logs or files for development validation.</p>
+        <ul><li>Useful as a preflight smoke test</li><li>Does not deliver invitations</li><li>Not a production solution</li></ul>
+      </div>
+    </div>
+
+    <h2>Recommended production shape</h2>
+    <pre class="mermaid">
+flowchart LR
+  UI[CVAT organization UI] --> API[cvat_server]
+  API --> SETTINGS[production_email settings]
+  SETTINGS -->|non-secret config| ENV[Compose environment]
+  SETTINGS -->|password file| SECRET[/run/secrets/cvat_smtp_password]
+  API -->|SMTP + TLS| RELAY[Institutional or transactional SMTP]
+  RELAY -->|SPF / DKIM / DMARC aligned| INBOX[Invitee mailbox]
+  INBOX -->|HTTPS invitation link| UI
+    </pre>
+
+    <h3>Why a separate settings module</h3>
+    <p>A new module such as <code>cvat.settings.production_email</code> can import all normal production settings, then add only mail configuration. This avoids turning the existing <code>email_settings.py</code> into a production file: that module uses the console backend and also enables mandatory account verification. It also keeps the fork-specific integration isolated from <code>base.py</code>, reducing future upstream-sync conflicts.</p>
+
+    <h3>Configuration contract</h3>
+    <p>The module should validate and expose:</p>
+    <table>
+      <thead><tr><th>Setting</th><th>Source</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td><code>EMAIL_BACKEND</code></td><td>Fixed in module</td><td><code>django.core.mail.backends.smtp.EmailBackend</code></td></tr>
+        <tr><td><code>EMAIL_HOST</code></td><td><code>CVAT_EMAIL_HOST</code></td><td>Required provider/relay hostname</td></tr>
+        <tr><td><code>EMAIL_PORT</code></td><td><code>CVAT_EMAIL_PORT</code></td><td>Usually 587 for explicit TLS or 465 for implicit TLS</td></tr>
+        <tr><td><code>EMAIL_HOST_USER</code></td><td><code>CVAT_EMAIL_HOST_USER</code></td><td>Optional for an IP-authorized institutional relay; required by most providers</td></tr>
+        <tr><td><code>EMAIL_HOST_PASSWORD</code></td><td><code>CVAT_EMAIL_HOST_PASSWORD_FILE</code></td><td>Read from a mounted Compose secret; never commit or bake into the image</td></tr>
+        <tr><td><code>EMAIL_USE_TLS</code> / <code>EMAIL_USE_SSL</code></td><td>Validated booleans</td><td>Mutually exclusive; follow the relay's documented port/mode</td></tr>
+        <tr><td><code>DEFAULT_FROM_EMAIL</code></td><td><code>CVAT_DEFAULT_FROM_EMAIL</code></td><td>A provider-authorized address, e.g. <code>CVAT Notifications &lt;cvat-notify@your-domain&gt;</code></td></tr>
+        <tr><td><code>EMAIL_TIMEOUT</code></td><td><code>CVAT_EMAIL_TIMEOUT</code></td><td>Finite value such as 10 seconds; current default is unbounded</td></tr>
+        <tr><td><code>ORG_INVITATION_CONFIRM</code></td><td>Separate explicit choice</td><td>Leave false for minimal behavior change; set true only if existing users must accept by email</td></tr>
+      </tbody>
+    </table>
+
+    <details>
+      <summary>Illustrative Compose override (not yet implemented)</summary>
+      <pre><code class="language-yaml">services:
+  cvat_server:
+    environment:
+      DJANGO_SETTINGS_MODULE: cvat.settings.production_email
+      CVAT_EMAIL_HOST: smtp.example.org
+      CVAT_EMAIL_PORT: "587"
+      CVAT_EMAIL_HOST_USER: cvat-notify@example.org
+      CVAT_EMAIL_HOST_PASSWORD_FILE: /run/secrets/cvat_smtp_password
+      CVAT_EMAIL_USE_TLS: "true"
+      CVAT_DEFAULT_FROM_EMAIL: "CVAT Notifications &lt;cvat-notify@example.org&gt;"
+      CVAT_EMAIL_TIMEOUT: "10"
+    secrets:
+      - cvat_smtp_password
+
+secrets:
+  cvat_smtp_password:
+    file: /etc/cvat/secrets/smtp_password</code></pre>
+      <p class="small">The existing ignored <code>docker-compose.override.yml</code> is suitable for host-specific wiring, while the settings module and its tests can be tracked. The secret file should remain outside the repository.</p>
+    </details>
+
+    <h2>Necessary implementation steps</h2>
+    <ol class="checklist">
+      <li><strong>Choose the sender and relay.</strong> Ask the institutional IT team whether an authenticated or IP-allowlisted SMTP submission service is available. If not, select a transactional provider with SMTP support. Obtain host, port, TLS mode, username/password (or relay rule), sender address, rate limits and sandbox restrictions.</li>
+      <li><strong>Authenticate the sender domain.</strong> Configure the provider-required SPF and DKIM records and publish DMARC deliberately. The public CVAT hostname and the email From domain do not need to be the same; do not assume the <code>duckdns.org</code> hostname is an appropriate sender identity.</li>
+      <li><strong>Add the settings module with validation.</strong> Read non-secret values from environment variables and the password from a file. Fail startup clearly for missing host/from, invalid port, unreadable secret, or simultaneous TLS and SSL.</li>
+      <li><strong>Add focused tests.</strong> Cover settings parsing, secret-file reading, TLS/SSL validation, finite timeout, and the invitation send path with Django's in-memory backend. Assert subject, recipient, HTTPS host, invitation key and <code>sent_date</code>.</li>
+      <li><strong>Wire only <code>cvat_server</code>.</strong> Add <code>DJANGO_SETTINGS_MODULE</code>, non-secret SMTP values and the Compose secret to the server override. Current code search shows organization invitations and password resets are sent in web-request code, not in RQ workers.</li>
+      <li><strong>Build and preflight.</strong> Rebuild the local <code>cvat/server:dev</code> image using the established CVAT build procedure, inspect the resolved Compose model without printing the secret, and validate DNS/TCP/TLS connectivity from a disposable server container.</li>
+      <li><strong>Send a controlled test.</strong> Use a provider sandbox or a designated test mailbox. Verify From identity, SPF/DKIM/DMARC results, the current HTML rendering, and that the link is <code>https://cvat-unina.duckdns.org/...</code>, not an internal host or HTTP URL. Consider adding a plain-text alternative as a separate message-quality improvement.</li>
+      <li><strong>Roll out narrowly.</strong> Recreate <code>cvat_server</code>; workers, database, UI and Nuclio do not need a restart for this slice. Confirm API health and logs before sending a real invitation.</li>
+      <li><strong>Recover the existing invitation.</strong> Use the UI's Resend action for the one pending unsent record after SMTP passes; do not create the same membership again.</li>
+      <li><strong>Exercise acceptance and reset.</strong> Verify new-user invitation, resend, expiry/acceptance, and optionally password reset. Decide separately whether to enable mandatory signup email verification or confirmation for existing-user invitations.</li>
+    </ol>
+
+    <h2>Verification and acceptance criteria</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Acceptance evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Static configuration</td><td>Resolved settings show SMTP backend, correct host/port/from, exactly one TLS mode, finite timeout, and only password presence—not its value.</td></tr>
+        <tr><td>Secret handling</td><td>Password absent from Git, Compose rendering, image history and ordinary logs; secret readable only by the service that needs it.</td></tr>
+        <tr><td>Transport</td><td>DNS resolution and SMTP/TLS handshake succeed from the CVAT server container; certificate validation remains enabled.</td></tr>
+        <tr><td>Application</td><td>Invitation API returns 201, <code>sent_date</code> is populated only after send, resend returns 204, and no backend warning toast appears.</td></tr>
+        <tr><td>Message</td><td>Recipient receives the correct subject/HTML body; invitation URL has the public HTTPS host and opens the intended acceptance/login flow. A plain-text alternative is desirable but not currently present.</td></tr>
+        <tr><td>Deliverability</td><td>Message headers report SPF/DKIM pass and DMARC alignment; test messages do not land in spam across at least institutional and Gmail/Outlook test recipients.</td></tr>
+        <tr><td>Rollback</td><td>Removing the email overlay and recreating <code>cvat_server</code> returns to the current no-mail state without database changes.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Risks and follow-on decisions</h2>
+    <div class="callout warn">
+      <div class="label">Synchronous failure behavior</div>
+      <p>SMTP happens inside the HTTP request. A slow relay delays the invitation action; authentication or network errors can return HTTP 500. Set a finite timeout and monitor errors. At the current low volume this is acceptable. A queued outbox with retry and provider bounce webhooks would be a later reliability slice, not a prerequisite.</p>
+    </div>
+    <ul>
+      <li><strong>Deliverability dominates calendar time.</strong> CVAT configuration is small; institutional approval, provider sandbox exit and DNS propagation may take longer.</li>
+      <li><strong>Sender identity matters.</strong> Avoid <code>webmaster@localhost</code> and consumer-address spoofing. Use a From domain the relay is authorized to sign.</li>
+      <li><strong>Invitation links are bearer credentials.</strong> They are random and expire after seven days by default; do not log message bodies or invitation keys.</li>
+      <li><strong>Existing-user semantics need a conscious choice.</strong> Enabling <code>ORG_INVITATION_CONFIRM</code> changes membership activation behavior and should not be bundled silently with SMTP.</li>
+      <li><strong>Template polish is optional.</strong> The current invitation is HTML-only and loads its logo from GitHub and web fonts from Google. A plain-text alternative and self-hosted assets can be added later for compatibility and privacy, but they do not block sending.</li>
+    </ul>
+
+    <h3>Indicative effort</h3>
+    <p>Assuming SMTP credentials and an authorized sender are available: roughly <strong>half a development day</strong> for the settings module, tests and Compose wiring, plus <strong>one to two hours</strong> for build, rollout and browser/mailbox smoke testing. Provider onboarding, institutional approval and DNS authentication can expand the calendar time from hours to several days. Operating a new self-hosted MTA would be a materially larger project.</p>
+
+    <h2>Recommendation</h2>
+    <p>Proceed as a small, isolated hardening/configuration feature: provider-neutral SMTP settings, Compose secret, finite timeout, focused tests, and a server-only rollout. First ask the university/organization mail administrator for a TLS-capable relay and permitted sender address. If none is available, select a transactional SMTP provider and a sender domain you control. Keep <code>ORG_INVITATION_CONFIRM</code> and mandatory account email verification unchanged in the first slice unless you explicitly want those workflow changes.</p>
+
+    <div class="callout info">
+      <div class="label">Decision inputs needed before implementation</div>
+      <p>SMTP provider/relay, authorized From address/domain, port and TLS mode, authentication method, who can edit DNS, and whether existing CVAT users should also receive confirmation emails.</p>
+    </div>
+
+    <h2>Evidence and references</h2>
+    <h3>Live checkout</h3>
+    <ul>
+      <li><a href="../../cvat/settings/base.py">Base settings</a> — backend disabled, invitation-confirm default, proxy security and public-host settings.</li>
+      <li><a href="../../cvat/settings/email_settings.py">Development email settings</a> — console backend and mandatory verification; not suitable as production SMTP configuration.</li>
+      <li><a href="../../cvat/apps/organizations/models.py">Invitation model</a> — guard, template context, send and timestamp behavior.</li>
+      <li><a href="../../cvat/apps/organizations/serializers.py">Invitation serializer</a> — placeholder user creation and existing-user auto-accept semantics.</li>
+      <li><a href="../../cvat/apps/organizations/views.py">Invitation API</a> — create/resend error handling.</li>
+      <li><a href="../../docker-compose.yml">Compose deployment</a> and <a href="../../docker-compose.override.yml">local override</a>.</li>
+    </ul>
+    <h3>Official documentation</h3>
+    <ul>
+      <li><a href="https://docs.cvat.ai/docs/administration/basics/installation/">CVAT installation guide: email backend</a></li>
+      <li><a href="https://docs.cvat.ai/docs/manual/advanced/organization/">CVAT organization invitations</a></li>
+      <li><a href="https://docs.djangoproject.com/en/5.2/topics/email/">Django 5.2 email and SMTP backend</a></li>
+      <li><a href="https://docs.djangoproject.com/en/5.2/ref/settings/#email-host">Django 5.2 email settings</a></li>
+      <li><a href="https://docs.docker.com/reference/compose-file/secrets/">Docker Compose secrets</a></li>
+      <li><a href="https://support.google.com/mail/answer/81126">Google sender authentication and deliverability guidelines</a></li>
+    </ul>
+  </main>
+</div>
+
+<footer>CVAT deployment research · plan-as-html · 2026-09-01</footer>
+<div class="toast" id="toast">Copied to clipboard</div>
+<script type="text/plain" id="prompt-seed">
+Re: the CVAT email backend feasibility report (recommended SMTP settings module plus Compose secret).
+I've read it. I want to choose the provider/sender policy or authorize an implementation plan. My decision is:
+-
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js" integrity="sha512-5TKaYvhenABhlGIKSxAWLFJBZCSQw7HTV7aL1dJcBokM/+3PNtfgJFlv8E6Us/B1VMlQ4u8sPzjudL9TEQ06ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"default"});</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>hljs.highlightAll();</script>
+<script>
+  (function(){
+    const content=document.querySelector(".content"),list=document.getElementById("toc-list"),heads=content.querySelectorAll("h2,h3");
+    const slug=t=>t.toLowerCase().trim().replace(/[^\w\s-]/g,"").replace(/\s+/g,"-").slice(0,60),seen={};
+    heads.forEach(h=>{let id=h.id||slug(h.textContent);if(seen[id])id=id+"-"+(++seen[id]);else seen[id]=1;h.id=id;const a=document.createElement("a");a.href="#"+id;a.textContent=h.textContent;a.className=h.tagName==="H3"?"h3":"";list.appendChild(a);});
+    const links=Array.from(list.querySelectorAll("a")),byId=Object.fromEntries(links.map(a=>[a.getAttribute("href").slice(1),a]));
+    const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.remove("active"));(byId[e.target.id]||{}).classList?.add("active");}}),{rootMargin:"-72px 0px -70% 0px"});heads.forEach(h=>obs.observe(h));
+    async function copyText(t){try{await navigator.clipboard.writeText(t);return true;}catch(_){const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy");}catch(e){}document.body.removeChild(ta);return ok;}}
+    const toast=document.getElementById("toast");document.getElementById("copyPromptBtn").addEventListener("click",async()=>{const ok=await copyText(document.getElementById("prompt-seed").textContent.trim());toast.textContent=ok?"Copied — paste it back to revise":"Copy failed";toast.classList.add("show");setTimeout(()=>toast.classList.remove("show"),2200);});
+  })();
+</script>
+</body>
+</html>
