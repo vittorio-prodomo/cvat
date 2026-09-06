@@ -46,7 +46,10 @@ export function convertMappingToServer(mapping: FullMapping): ServerMapping {
                 name: taskLabel.name,
                 attributes: attributesMapping.reduce<Record<string, string>>((attrAcc, val) => {
                     if (val[0]?.name && val[1]?.name) {
-                        attrAcc[val[0].name] = val[1].name;
+                        return {
+                            ...attrAcc,
+                            [val[0].name]: val[1].name,
+                        };
                     }
                     return attrAcc;
                 }, {}),
