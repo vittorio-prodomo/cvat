@@ -228,6 +228,7 @@ function makeAllShapeTypesResponse(labelIds) {
         tracks: [],
         shapes: [
             makeRectangle({ labelId: labelIds.damage, score: 0.90, points: [10, 40, 25, 55] }),
+            makeRectangle({ labelId: labelIds.damage, score: 0.85, points: [12, 42, 23, 53] }),
             makeShape({
                 labelId: labelIds.damage, type: 'ellipse', points: [50, 48, 60, 40], score: 0.80,
             }),
@@ -570,6 +571,8 @@ context('Detector preview postprocessing', () => {
                 assertUIOnlyOptionsAreOmitted(requests[0]);
             });
             cy.get(PREVIEW).should('contain.text', '4 / 5 results');
+            cy.get(`${PREVIEW_SLIDER} [role="slider"]`)
+                .should('have.attr', 'aria-valuenow', '0.35');
             cy.get(PREVIEW_DONE).should('be.enabled');
             cy.get(PREVIEW_CANCEL).click();
             reopenDetectorPopover();
@@ -671,68 +674,87 @@ context('Detector preview postprocessing', () => {
         openDetectorsWithModels([detector]);
         readTaskDetectorMetadata().then(({ labelIds, attributeSpecIds }) => {
             let requestCount = 0;
-            recordSidebarItemIds().then((sidebarIds) => {
-                cy.intercept('POST', '**/api/lambda/functions/test-detector-preview**', (request) => {
-                    requestCount++;
-                    expect(request.body.threshold).to.equal(0.1);
-                    assertUIOnlyOptionsAreOmitted(request.body);
-                    request.reply({
-                        statusCode: 200,
-                        body: makePreviewResponse(labelIds, attributeSpecIds),
-                    });
-                }).as('previewTransactionCall');
+            cy.request(`/api/jobs/${createdJobId}/annotations`).then(({ body: annotationsBefore }) => {
+                const shapeIdsBefore = new Set(annotationsBefore.shapes.map(({ id }) => id));
+                const tagIdsBefore = new Set(annotationsBefore.tags.map(({ id }) => id));
+                recordSidebarItemIds().then((sidebarIds) => {
+                    cy.intercept('POST', '**/api/lambda/functions/test-detector-preview**', (request) => {
+                        requestCount++;
+                        expect(request.body.threshold).to.equal(0.1);
+                        assertUIOnlyOptionsAreOmitted(request.body);
+                        request.reply({
+                            statusCode: 200,
+                            body: makePreviewResponse(labelIds, attributeSpecIds),
+                        });
+                    }).as('previewTransactionCall');
 
-                cy.get(RUN_BUTTON).click();
-                cy.wait('@previewTransactionCall');
-                expectSidebarCount(sidebarIds.length);
-                cy.get(PREVIEW).should('contain.text', '4 / 5 results');
-                cy.get(INTERMEDIATE_SHAPE).should('have.length', 4);
-                setPreviewConfidenceAboveEighty();
-                cy.then(() => expect(requestCount).to.equal(1));
-                cy.get(INTERMEDIATE_SHAPE).should('have.length', 2);
-                cy.get(PREVIEW_CANCEL).click();
-                expectSidebarCount(sidebarIds.length);
-                cy.get(PREVIEW).should('not.exist');
-                cy.get(INTERMEDIATE_SHAPE).should('not.exist');
-                reopenDetectorPopover();
+                    cy.get(RUN_BUTTON).click();
+                    cy.wait('@previewTransactionCall');
+                    expectSidebarCount(sidebarIds.length);
+                    cy.get(PREVIEW).should('contain.text', '4 / 5 results');
+                    cy.get(INTERMEDIATE_SHAPE).should('have.length', 4);
+                    setPreviewConfidenceAboveEighty();
+                    cy.then(() => expect(requestCount).to.equal(1));
+                    cy.get(INTERMEDIATE_SHAPE).should('have.length', 2);
+                    cy.get(PREVIEW_CANCEL).click();
+                    expectSidebarCount(sidebarIds.length);
+                    cy.get(PREVIEW).should('not.exist');
+                    cy.get(INTERMEDIATE_SHAPE).should('not.exist');
+                    reopenDetectorPopover();
 
-                cy.get(RUN_BUTTON).click();
-                cy.wait('@previewTransactionCall');
-                setPreviewConfidenceAboveEighty();
-                cy.then(() => expect(requestCount).to.equal(2));
-                cy.get(PREVIEW_DONE).click();
-                expectSidebarCount(sidebarIds.length + 3);
-                cy.get(PREVIEW).should('not.exist');
-                cy.get(INTERMEDIATE_SHAPE).should('not.exist');
+                    cy.get(RUN_BUTTON).click();
+                    cy.wait('@previewTransactionCall');
+                    setPreviewConfidenceAboveEighty();
+                    cy.then(() => expect(requestCount).to.equal(2));
+                    cy.get(PREVIEW_DONE).click();
+                    expectSidebarCount(sidebarIds.length + 3);
+                    cy.get(PREVIEW).should('not.exist');
+                    cy.get(INTERMEDIATE_SHAPE).should('not.exist');
 
-                cy.get('body').find(SIDEBAR_ITEM).then(($items) => {
-                    const newItems = [...$items].filter(({ id }) => !sidebarIds.includes(id));
-                    expect(newItems).to.have.length(3);
-                    const scoredMask = newItems.find((item) => item.textContent.includes('MASK SHAPE'));
-                    expect(scoredMask, 'new scored mask sidebar item').to.exist;
-                    cy.wrap(scoredMask).within(() => {
-                        cy.contains('.cvat-objects-sidebar-state-item-collapse', 'DETAILS').click();
-                        cy.contains('.cvat-object-item-attribute-wrapper', 'model_conf').within(() => {
-                            cy.get('.cvat-object-item-text-attribute').should('have.value', '0.9000');
+                    cy.get('body').find(SIDEBAR_ITEM).then(($items) => {
+                        const newItems = [...$items].filter(({ id }) => !sidebarIds.includes(id));
+                        expect(newItems).to.have.length(3);
+                        const scoredMask = newItems.find((item) => item.textContent.includes('MASK SHAPE'));
+                        expect(scoredMask, 'new scored mask sidebar item').to.exist;
+                        cy.wrap(scoredMask).within(() => {
+                            cy.contains('.cvat-objects-sidebar-state-item-collapse', 'DETAILS').click();
+                            cy.contains('.cvat-object-item-attribute-wrapper', 'model_conf').within(() => {
+                                cy.get('.cvat-object-item-text-attribute').should('have.value', '0.9000');
+                            });
                         });
                     });
-                });
 
-                cy.saveJob();
-                cy.request(`/api/jobs/${createdJobId}/annotations`).then(({ body }) => {
-                    const shape = body.shapes.find(({ score }) => score === 0.9);
-                    expect(shape, 'saved 0.90 confidence shape').to.exist;
-                    expect(shape.attributes).to.deep.include({
-                        spec_id: attributeSpecIds.damage,
-                        value: '0.9000',
+                    cy.saveJob();
+                    cy.request(`/api/jobs/${createdJobId}/annotations`).then(({ body: annotationsAfter }) => {
+                        expect(annotationsAfter.shapes).to.have.length(annotationsBefore.shapes.length + 2);
+                        expect(annotationsAfter.tags).to.have.length(annotationsBefore.tags.length + 1);
+                        const addedShapes = annotationsAfter.shapes.filter(({ id }) => !shapeIdsBefore.has(id));
+                        const addedTags = annotationsAfter.tags.filter(({ id }) => !tagIdsBefore.has(id));
+                        expect(addedShapes, 'newly persisted preview shapes').to.have.length(2);
+                        expect(addedTags, 'newly persisted preview tags').to.have.length(1);
+
+                        const scoredMask = addedShapes.find(({ score }) => score === 0.9);
+                        expect(scoredMask, 'newly persisted 0.90 confidence shape').to.exist;
+                        expect(scoredMask).to.include({
+                            label_id: labelIds.damage,
+                            type: 'mask',
+                        });
+                        expect(scoredMask.attributes).to.deep.include({
+                            spec_id: attributeSpecIds.damage,
+                            value: '0.9000',
+                        });
+                        expect(addedTags[0]).to.include({
+                            label_id: labelIds.damage,
+                            frame: 0,
+                        });
                     });
-                });
-                cy.window().then((win) => {
-                    const damage = requireToolsControlComponent(win).props.jobInstance.labels
-                        .find(({ name }) => name === 'damage');
-                    const confidenceAttribute = damage.attributes
-                        .find(({ id }) => id === attributeSpecIds.damage);
-                    expect(confidenceAttribute.name).to.equal('model_confidence');
+                    cy.window().then((win) => {
+                        const damage = requireToolsControlComponent(win).props.jobInstance.labels
+                            .find(({ name }) => name === 'damage');
+                        const confidenceAttribute = damage.attributes
+                            .find(({ id }) => id === attributeSpecIds.damage);
+                        expect(confidenceAttribute.name).to.equal('model_confidence');
+                    });
                 });
             });
         });
@@ -779,26 +801,32 @@ context('Detector preview postprocessing', () => {
                 request.reply({ statusCode: 200, body: makeAllShapeTypesResponse(labelIds) });
             }).as('allShapeTypesCall');
 
-            cy.get(RUN_BUTTON).click();
-            cy.wait('@allShapeTypesCall');
-            cy.get(PREVIEW).should('contain.text', '6 / 6 results');
-            cy.get(`rect${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`ellipse${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`polygon${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`image${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`polyline${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`circle${INTERMEDIATE_SHAPE}`).should('have.length', 2);
+            ['NMM', 'NMM (greedy)'].forEach((method, index, methods) => {
+                selectPostprocessingMethod(method);
+                cy.get(RUN_BUTTON).click();
+                cy.wait('@allShapeTypesCall');
+                cy.get(PREVIEW).should('contain.text', '6 / 7 results');
+                cy.get(`rect${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`ellipse${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`polygon${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`image${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`polyline${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`circle${INTERMEDIATE_SHAPE}`).should('have.length', 2);
 
-            setPreviewConfidenceToMaximum();
-            cy.get(PREVIEW).should('contain.text', '2 / 6 results');
-            cy.get(`rect${INTERMEDIATE_SHAPE}`).should('not.exist');
-            cy.get(`ellipse${INTERMEDIATE_SHAPE}`).should('not.exist');
-            cy.get(`polygon${INTERMEDIATE_SHAPE}`).should('not.exist');
-            cy.get(`image${INTERMEDIATE_SHAPE}`).should('not.exist');
-            cy.get(`polyline${INTERMEDIATE_SHAPE}`).should('have.length', 1);
-            cy.get(`circle${INTERMEDIATE_SHAPE}`).should('have.length', 2);
-            cy.then(() => expect(requestCount).to.equal(1));
-            cy.get(PREVIEW_CANCEL).click();
+                setPreviewConfidenceToMaximum();
+                cy.get(PREVIEW).should('contain.text', '2 / 7 results');
+                cy.get(`rect${INTERMEDIATE_SHAPE}`).should('not.exist');
+                cy.get(`ellipse${INTERMEDIATE_SHAPE}`).should('not.exist');
+                cy.get(`polygon${INTERMEDIATE_SHAPE}`).should('not.exist');
+                cy.get(`image${INTERMEDIATE_SHAPE}`).should('not.exist');
+                cy.get(`polyline${INTERMEDIATE_SHAPE}`).should('have.length', 1);
+                cy.get(`circle${INTERMEDIATE_SHAPE}`).should('have.length', 2);
+                cy.then(() => expect(requestCount).to.equal(index + 1));
+                cy.get(PREVIEW_CANCEL).click();
+                if (index < methods.length - 1) {
+                    reopenDetectorPopover();
+                }
+            });
         });
     });
 
