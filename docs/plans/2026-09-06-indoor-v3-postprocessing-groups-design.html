@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Indoor v3 Postprocessing Compatibility Groups</title>
+<style>
+  :root { --bg:#fbfbfa; --surface:#fff; --text:#1f2328; --muted:#656d76; --border:#e3e6ea; --accent:#4f46e5; --accent-soft:#eef0fe; --ok:#047857; --warn:#b45309; }
+  @media (prefers-color-scheme:dark) { :root { --bg:#0f1115; --surface:#161922; --text:#e6e8eb; --muted:#9aa4b2; --border:#262b36; --accent:#8b89ff; --accent-soft:#1e2030; } }
+  * { box-sizing:border-box; } html { scroll-behavior:smooth; } body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 system-ui,sans-serif; }
+  .topbar { position:sticky; top:0; z-index:10; display:flex; gap:16px; align-items:center; padding:12px 24px; background:var(--bg); border-bottom:1px solid var(--border); }
+  .topbar .spacer { flex:1; } button { border:1px solid var(--border); border-radius:8px; padding:7px 12px; background:var(--surface); color:var(--text); cursor:pointer; }
+  .layout { display:grid; grid-template-columns:230px minmax(0,820px); gap:40px; max-width:1130px; margin:auto; padding:40px 24px 96px; }
+  .toc { position:sticky; top:76px; align-self:start; font-size:14px; } .toc a { display:block; color:var(--muted); text-decoration:none; padding:4px 8px; }
+  h1 { font-size:32px; line-height:1.2; margin:0 0 6px; } h2 { margin:42px 0 14px; padding-bottom:6px; border-bottom:1px solid var(--border); } h3 { margin-top:28px; }
+  .sub,.meta { color:var(--muted); } .meta { font-size:13px; }
+  .callout { border:1px solid var(--border); border-left:4px solid var(--accent); border-radius:10px; background:var(--surface); padding:12px 16px; margin:18px 0; }
+  .options { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; } .option { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .option.pick { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); } .tag { color:var(--accent); background:var(--accent-soft); border-radius:999px; padding:2px 8px; font-size:12px; font-weight:650; }
+  code,pre { background:var(--accent-soft); border-radius:6px; } code { padding:.15em .4em; } pre { padding:14px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; } th,td { border:1px solid var(--border); padding:9px 11px; text-align:left; vertical-align:top; } th { background:var(--accent-soft); }
+  .mermaid { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  @media(max-width:850px) { .layout { grid-template-columns:1fr; } .toc { position:static; } }
+  @media print { .topbar,.toc { display:none; } .layout { display:block; } }
+</style>
+</head>
+<body>
+<header class="topbar"><strong>Indoor v3 Postprocessing Compatibility Groups</strong><span class="spacer"></span><button id="copyPrompt" type="button">Copy as prompt</button><button onclick="window.print()" type="button">Print / PDF</button></header>
+<div class="layout">
+  <nav class="toc"><strong>On this page</strong><div id="toc"></div></nav>
+  <main>
+    <h1>Indoor v3 Postprocessing Compatibility Groups</h1>
+    <p class="sub">Reusable model metadata for selective cross-class NMS and NMM, plus fixed two-decimal confidence attributes.</p>
+    <p class="meta">2026-09-06 · CVAT fork · Approved design</p>
+
+    <h2>Executive summary</h2>
+    <p>Indoor v3 will declare <code>C5</code> and <code>C6</code> as a postprocessing compatibility group in its Nuclio metadata. CVAT will resolve model-label names through the active label mapping and let the existing browser worker compare only the resulting task-label IDs. This preserves instant confidence and overlap previews while making the mechanism reusable for future model-specific defect families.</p>
+    <div class="callout"><strong>Invariant:</strong> model metadata changes partition membership only. The selected NMS/NMM method, IoU/IoS metric, overlap threshold, confidence threshold, geometry behavior, and Disabled behavior remain generic.</div>
+
+    <h2>Options considered</h2>
+    <div class="options">
+      <section class="option pick"><span class="tag">Selected</span><h3>Manifest-declared groups</h3><p>Expose validated label-name groups through the model API and resolve them after mapping.</p><p><strong>Benefit:</strong> reusable and compatible with live preview.</p></section>
+      <section class="option"><h3>UI hard-code</h3><p>Special-case the Indoor function ID and C5/C6 in React.</p><p><strong>Cost:</strong> brittle coupling to one deployment identity.</p></section>
+      <section class="option"><h3>Handler postprocessing</h3><p>Suppress or merge before returning inference results.</p><p><strong>Cost:</strong> cannot follow live UI controls and may double-process predictions.</p></section>
+    </div>
+
+    <h2>Metadata contract</h2>
+    <pre><code>metadata:
+  annotations:
+    postprocessing_label_groups: '[["C5", "C6"]]'</code></pre>
+    <p>The backend accepts a JSON array of groups. Every group must contain at least two unique model-label names; all names must exist in the function specification; and a label may occur in at most one group. Invalid declarations make the function metadata invalid instead of silently changing inference behavior.</p>
+
+    <h2>Runtime flow</h2>
+    <pre class="mermaid">
+flowchart LR
+  A[Indoor manifest: C5 + C6] --> B[Lambda function API]
+  B --> C[MLModel metadata]
+  C --> D[Resolve active label mapping]
+  D --> E[Task label ID group]
+  E --> F[Browser postprocessing worker]
+  F --> G[NMS / NMM / greedy NMM preview]
+    </pre>
+    <p>If both labels map to one task label, ordinary class-aware partitioning already provides the desired behavior. If fewer than two distinct task labels remain mapped, CVAT omits the compatibility group for that run. If separately declared families overlap after mapping onto the project schema, CVAT coalesces them into one connected task-label group.</p>
+
+    <h2>Algorithm semantics</h2>
+    <table>
+      <thead><tr><th>Situation</th><th>Required behavior</th></tr></thead>
+      <tbody>
+        <tr><td>NMS</td><td>C5 and C6 compete together; the higher score survives with its original label.</td></tr>
+        <tr><td>Full NMM</td><td>Transitive connected components may contain both classes; the highest-ranked member supplies the output label and metadata.</td></tr>
+        <tr><td>Greedy NMM</td><td>The highest-ranked anchor absorbs qualifying C5/C6 candidates and supplies the output label.</td></tr>
+        <tr><td>Equal scores</td><td>The earlier source response wins, preserving existing deterministic ranking.</td></tr>
+        <tr><td>Other classes</td><td>Remain partitioned by their own mapped task-label ID.</td></tr>
+        <tr><td>Disabled</td><td>No suppression or merge, including between C5 and C6.</td></tr>
+        <tr><td>Missing/invalid score</td><td>Pass through and do not participate in overlap processing.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Confidence formatting</h2>
+    <p>Postprocessing continues to compare the native numeric <code>score</code> at full precision. Before CVAT materializes annotations, any mapped <code>model_confidence</code> text attribute is rewritten from the valid numeric score with <code>toFixed(2)</code>. Values therefore appear as <code>0.87</code> or <code>0.90</code>, while thresholds and winner selection retain the original precision.</p>
+
+    <h2>Verification</h2>
+    <ul>
+      <li>Backend tests cover valid declarations and malformed, unknown, duplicate, and overlapping groups.</li>
+      <li>Core tests cover metadata exposure and defensive copying.</li>
+      <li>Mapping tests cover renamed task labels, unmapped members, and many declared groups.</li>
+      <li>Postprocessor tests cover C5/C6 behavior under all three algorithms and isolation from other classes.</li>
+      <li>Confidence tests cover ordinary, suppressed, merged, disabled, equal-score, and invalid-score results.</li>
+    </ul>
+  </main>
+</div>
+<script type="text/plain" id="prompt-seed">Re: the approved Indoor v3 postprocessing compatibility-group design. I want to change the following:
+-</script>
+<script>
+  const headings=[...document.querySelectorAll('main h2')]; const toc=document.getElementById('toc');
+  headings.forEach((h,i)=>{h.id=`section-${i}`; const a=document.createElement('a'); a.href=`#${h.id}`; a.textContent=h.textContent; toc.appendChild(a);});
+  document.getElementById('copyPrompt').addEventListener('click',async()=>navigator.clipboard.writeText(document.getElementById('prompt-seed').textContent.trim()));
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js" integrity="sha512-5TKaYvhenABhlGIKSxAWLFJBZCSQw7HTV7aL1dJcBokM/+3PNtfgJFlv8E6Us/B1VMlQ4u8sPzjudL9TEQ06ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia('(prefers-color-scheme:dark)').matches?'dark':'default'});</script>
+</body>
+</html>

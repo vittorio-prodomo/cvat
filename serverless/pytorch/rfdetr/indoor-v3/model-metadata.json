@@ -1,0 +1,38 @@
+{
+  "run": "rfdetr-indoor-domus-v3",
+  "checkpoint": "epoch=016-map=0.0749.ckpt",
+  "checkpoint_sha256": "d16cd64e8b91d62a13caab4f53453692be74259a72b03d3445d3aff7a9e13a39",
+  "training_config_sha256": "3c9736aa00a9ce8916ada395e68cd7b236f79a1fe760fe3a70a03d6c75f753f9",
+  "architecture": "rf-detr-seg-large",
+  "input_size": 504,
+  "mask_downsample_ratio": 2,
+  "classes": [
+    "C1",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "crack"
+  ],
+  "source_commits": {
+    "training-toolkit": "8e5b3232e1aa4e63bebeb771ace948f93c69242b",
+    "rf-detr": "27eceb15ff74a4f5be0d5e7c860e5760497cd5fb"
+  },
+  "inference": {
+    "default_threshold": 0.2,
+    "class_aware_mask_nms_iou": 0.7,
+    "max_detections": 100,
+    "mask_decoding": "full input resolution",
+    "sliced": false
+  },
+  "category_source": {
+    "path": "/data/projects/bridge_defect_detection/datasets/indoor_domus_v2/annotations/instances_val.json",
+    "sha256": "81da990ab15717bbe0a9d5d722e3b9b2f5d6e75442ec7066c1cd6d4df597c2d4",
+    "mapping": "COCO category IDs sorted ascending, mapped to zero-based model indices"
+  }
+}

@@ -1,0 +1,204 @@
+metadata:
+  name: pth-rfdetr-indoor-v3
+  namespace: nuclio
+  labels:
+    nuclio.io/project-name: cvat
+  annotations:
+    name: Indoor v3
+    version: '2'
+    type: detector
+    framework: pytorch
+    postprocessing_label_groups: '[["C5", "C6"]]'
+    spec: |
+      [
+        {
+          "id": 0,
+          "name": "C1",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 1,
+          "name": "C5",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "name": "C6",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "name": "C7",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "name": "C8",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "name": "C9",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "name": "C10",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "name": "C11",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "name": "C12",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "name": "C13",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "name": "crack",
+          "type": "mask",
+          "attributes": [
+            {
+              "name": "model_confidence",
+              "input_type": "text",
+              "values": [
+                ""
+              ]
+            }
+          ]
+        }
+      ]
+spec:
+  description: Eleven-class indoor instance segmentation on a frame or CVAT region of interest
+  runtime: python:3.11
+  handler: main:handler
+  image: cvat.rfdetr.indoor.v3:confidence-text-20260904
+  eventTimeout: 60s
+  readinessTimeoutSeconds: 300
+  env:
+    - name: CHECKPOINT_PATH
+      value: /opt/models/epoch=016-map=0.0749.ckpt
+  volumes:
+    - volume:
+        name: indoor-checkpoint
+        hostPath:
+          path: /data/cvat/data/models/indoor-v3
+      volumeMount:
+        name: indoor-checkpoint
+        mountPath: /opt/models
+        readOnly: true
+  triggers:
+    myHttpTrigger:
+      kind: http
+      numWorkers: 1
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  platform:
+    attributes:
+      network: cvat_cvat
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume

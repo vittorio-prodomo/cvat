@@ -810,14 +810,14 @@ function mergeGroup(group: PreparedShape[], frame: FrameSize): DetectorShape {
     const attributes = anchor.shape.attributes.map((attribute) => {
         if (anchor.shape.confidenceAttributeSpecID === attribute.spec_id) {
             foundConfidenceAttribute = true;
-            return { ...attribute, value: maximumScore.toFixed(4) };
+            return { ...attribute, value: maximumScore.toFixed(2) };
         }
         return { ...attribute };
     });
     if (anchor.shape.confidenceAttributeSpecID !== undefined && !foundConfidenceAttribute) {
         attributes.push({
             spec_id: anchor.shape.confidenceAttributeSpecID,
-            value: maximumScore.toFixed(4),
+            value: maximumScore.toFixed(2),
         });
     }
     return {
@@ -911,6 +911,41 @@ function processGreedyNMM(
     return merged;
 }
 
+function buildPartitionKeyByLabelID(labelGroups: number[][]): Map<number, string> {
+    const partitionKeyByLabelID = new Map<number, string>();
+    labelGroups.forEach((group, groupIndex) => {
+        if (!Array.isArray(group) || group.length < 2) {
+            throw new DetectorPostprocessingError('Detector postprocessing label group must contain two labels');
+        }
+        const groupLabels = new Set<number>();
+        for (const labelID of group) {
+            if (!Number.isSafeInteger(labelID) || labelID < 0 || groupLabels.has(labelID) ||
+                partitionKeyByLabelID.has(labelID)) {
+                throw new DetectorPostprocessingError('Detector postprocessing label group is invalid or overlaps');
+            }
+            groupLabels.add(labelID);
+            partitionKeyByLabelID.set(labelID, `group:${groupIndex}`);
+        }
+    });
+    return partitionKeyByLabelID;
+}
+
+function formatConfidenceAttribute(shape: DetectorShape): DetectorShape {
+    const score = normalizeScore(shape.score);
+    if (score === null || shape.confidenceAttributeSpecID === undefined ||
+        !shape.attributes.some(({ spec_id: specID }) => specID === shape.confidenceAttributeSpecID)) {
+        return shape;
+    }
+    return {
+        ...shape,
+        attributes: shape.attributes.map((attribute) => (
+            attribute.spec_id === shape.confidenceAttributeSpecID ?
+                { ...attribute, value: score.toFixed(2) } :
+                { ...attribute }
+        )),
+    };
+}
+
 export function processDetectorShapes(
     shapes: DetectorShape[],
     frame: FrameSize,
@@ -918,7 +953,8 @@ export function processDetectorShapes(
 ): DetectorShape[] {
     validateFrame(frame);
     const passthrough: DetectorShape[] = [];
-    const partitions = new Map<number, PreparedShape[]>();
+    const partitionKeyByLabelID = buildPartitionKeyByLabelID(options.postprocessing.labelGroups ?? []);
+    const partitions = new Map<string, PreparedShape[]>();
     for (const shape of shapes) {
         const score = normalizeScore(shape.score);
         if (score !== null && options.confidenceThreshold !== null && score < options.confidenceThreshold) {
@@ -927,9 +963,10 @@ export function processDetectorShapes(
         if (score === null || !isAreaShape(shape) || options.postprocessing.method === 'disabled') {
             passthrough.push(shape);
         } else {
-            const partition = partitions.get(shape.label_id) ?? [];
+            const partitionKey = partitionKeyByLabelID.get(shape.label_id) ?? `label:${shape.label_id}`;
+            const partition = partitions.get(partitionKey) ?? [];
             partition.push(prepareShape(shape, score, frame));
-            partitions.set(shape.label_id, partition);
+            partitions.set(partitionKey, partition);
         }
     }
 
@@ -943,5 +980,7 @@ export function processDetectorShapes(
         }
         return processGreedyNMM(partition, metric, threshold, frame);
     });
-    return [...passthrough, ...processed].sort((first, second) => first.sourceIndex - second.sourceIndex);
+    return [...passthrough, ...processed]
+        .sort((first, second) => first.sourceIndex - second.sourceIndex)
+        .map(formatConfidenceAttribute);
 }

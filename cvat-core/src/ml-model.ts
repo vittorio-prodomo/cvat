@@ -111,9 +111,15 @@ export default class MLModel {
     }
 
     public get extraParamsSchema(): object[] {
-        return Array.isArray(this.serialized.extra_params_schema)
-            ? this.serialized.extra_params_schema
-            : [];
+        return Array.isArray(this.serialized.extra_params_schema) ?
+            this.serialized.extra_params_schema :
+            [];
+    }
+
+    public get postprocessingLabelGroups(): string[][] {
+        return Array.isArray(this.serialized.postprocessing_label_groups) ?
+            this.serialized.postprocessing_label_groups.map((group) => [...group]) :
+            [];
     }
 
     public async preview(): Promise<string> {

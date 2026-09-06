@@ -260,6 +260,41 @@ class LambdaFunction:
             json.loads(extra_params_schema_raw) if extra_params_schema_raw else []
         )
 
+        postprocessing_label_groups_raw = meta_anno.get("postprocessing_label_groups")
+        try:
+            postprocessing_label_groups = (
+                json.loads(postprocessing_label_groups_raw)
+                if postprocessing_label_groups_raw is not None
+                else []
+            )
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise InvalidFunctionMetadataError(
+                f"{self.id} lambda function has invalid postprocessing label groups"
+            ) from exc
+
+        if not isinstance(postprocessing_label_groups, list):
+            raise InvalidFunctionMetadataError(
+                f"{self.id} lambda function has invalid postprocessing label groups"
+            )
+
+        declared_labels = {label["name"] for label in self.labels}
+        grouped_labels = set()
+        self.postprocessing_label_groups = []
+        for group in postprocessing_label_groups:
+            if (
+                not isinstance(group, list)
+                or len(group) < 2
+                or any(not isinstance(label, str) for label in group)
+                or len(group) != len(set(group))
+                or not set(group).issubset(declared_labels)
+                or not grouped_labels.isdisjoint(group)
+            ):
+                raise InvalidFunctionMetadataError(
+                    f"{self.id} lambda function has invalid postprocessing label groups"
+                )
+            self.postprocessing_label_groups.append(list(group))
+            grouped_labels.update(group)
+
         if "supported_shape_types" in meta_anno:
             self.supported_shape_types = [
                 stripped
@@ -286,6 +321,11 @@ class LambdaFunction:
             "version": self.version,
             "extra_params_schema": self.extra_params_schema,
         }
+
+        if self.postprocessing_label_groups:
+            response["postprocessing_label_groups"] = [
+                list(group) for group in self.postprocessing_label_groups
+            ]
 
         if self.kind is FunctionKind.INTERACTOR:
             response.update(

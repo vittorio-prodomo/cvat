@@ -5,6 +5,7 @@ export interface DetectorPostprocessingOptions {
     method: DetectorPostprocessingMethod;
     metric: DetectorOverlapMetric;
     threshold: number;
+    labelGroups?: number[][];
 }
 
 export interface DetectorRunOptions {

@@ -58,3 +58,50 @@ export function convertMappingToServer(mapping: FullMapping): ServerMapping {
         }
     ), {});
 }
+
+export function resolvePostprocessingLabelGroups(
+    modelGroups: string[][],
+    mapping: FullMapping,
+    taskLabels: Pick<Label, 'id' | 'name'>[],
+): number[][] {
+    const mappedTaskNameByModelName = new Map(
+        mapping.map(([modelLabel, taskLabel]) => [modelLabel.name, taskLabel.name]),
+    );
+    const taskIDByName = new Map(taskLabels.map(({ id, name }) => [name, id]));
+
+    const resolvedGroups = modelGroups.reduce<number[][]>((groups, group) => {
+        const taskLabelIDs = Array.from(new Set(group.flatMap((modelLabelName) => {
+            const taskLabelName = mappedTaskNameByModelName.get(modelLabelName);
+            if (!taskLabelName) return [];
+            const taskLabelID = taskIDByName.get(taskLabelName);
+            return Number.isSafeInteger(taskLabelID) ? [taskLabelID] : [];
+        })));
+        if (taskLabelIDs.length > 1) {
+            groups.push(taskLabelIDs);
+        }
+        return groups;
+    }, []);
+
+    const parents = new Map<number, number>();
+    const find = (labelID: number): number => {
+        const parent = parents.get(labelID) ?? labelID;
+        if (parent === labelID) return labelID;
+        const root = find(parent);
+        parents.set(labelID, root);
+        return root;
+    };
+    for (const group of resolvedGroups) {
+        for (const labelID of group) parents.set(labelID, parents.get(labelID) ?? labelID);
+        const groupRoot = find(group[0]);
+        for (const labelID of group.slice(1)) parents.set(find(labelID), groupRoot);
+    }
+
+    const components = new Map<number, number[]>();
+    for (const labelID of resolvedGroups.flat()) {
+        const root = find(labelID);
+        const component = components.get(root) ?? [];
+        if (!component.includes(labelID)) component.push(labelID);
+        components.set(root, component);
+    }
+    return Array.from(components.values());
+}

@@ -33,6 +33,7 @@ import {
     convertMappingToServer,
     convertTaskLabels,
     convertModelLabels,
+    resolvePostprocessingLabelGroups,
 } from './label-mapping-utils';
 import RegionOfInterestInputComponent from './region-of-interest-input';
 import {
@@ -463,6 +464,11 @@ function DetectorRunner(props: Props): JSX.Element {
                                     metric: postprocessingMetric,
                                     threshold: postprocessingThreshold ??
                                         DEFAULT_DETECTOR_RUN_OPTIONS.postprocessing.threshold,
+                                    labelGroups: resolvePostprocessingLabelGroups(
+                                        model.postprocessingLabelGroups,
+                                        mapping,
+                                        labels,
+                                    ),
                                 },
                             };
                             if (model.kind === ModelKind.DETECTOR) {

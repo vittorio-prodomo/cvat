@@ -55,6 +55,7 @@ export interface SerializedModel {
     created_date?: string;
     updated_date?: string;
     extra_params_schema?: object[];
+    postprocessing_label_groups?: string[][];
 }
 
 export interface UpdateStatusData {

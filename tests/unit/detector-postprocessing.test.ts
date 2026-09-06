@@ -57,9 +57,10 @@ const process = (
     threshold = 0.3,
     confidenceThreshold: number | null = 0,
     frame = FRAME,
+    labelGroups: number[][] = [],
 ): DetectorShape[] => processDetectorShapes(shapes, frame, {
     confidenceThreshold,
-    postprocessing: { method, metric, threshold },
+    postprocessing: { method, metric, threshold, labelGroups },
 });
 
 test('latest request gate accepts only the newest live request', () => {
@@ -622,6 +623,25 @@ test('NMS keeps higher confidence even when it is the smaller shape', () => {
     ], 'nms', 'ios', 1).map((shape) => shape.id), [1]);
 });
 
+test('NMS compares compatible labels while leaving other labels isolated', () => {
+    const kept = process([
+        rectangle(0, 5, 0.8, [0, 0, 10, 10]),
+        rectangle(1, 6, 0.9, [2, 2, 4, 4]),
+        rectangle(2, 7, 0.7, [2, 2, 4, 4]),
+    ], 'nms', 'ios', 1, 0, FRAME, [[5, 6]]);
+
+    assert.deepEqual(kept.map(({ id, label_id: labelID }) => [id, labelID]), [[1, 6], [2, 7]]);
+});
+
+test('compatible-label NMS resolves equal confidence by stable response order', () => {
+    const kept = process([
+        { ...rectangle(4, 5, 0.8, [0, 0, 5, 5]), sourceIndex: 0 },
+        { ...rectangle(2, 6, 0.8, [0, 0, 5, 5]), sourceIndex: 1 },
+    ], 'nms', 'ios', 1, 0, FRAME, [[5, 6]]);
+
+    assert.deepEqual(kept.map(({ id, label_id: labelID }) => [id, labelID]), [[4, 5]]);
+});
+
 test('rejects malformed high-confidence rectangles before NMS ranking', () => {
     const malformedRectangles = [
         rectangle(0, 1, 0.9, [4, 0, 0, 4]),
@@ -718,6 +738,49 @@ test('keeps missing and invalid confidence visible and excludes it from overlap 
     }
 });
 
+test('formats mapped confidence text to two decimals without changing numeric ranking precision', () => {
+    for (const method of ['disabled', 'nms', 'nmm', 'greedy_nmm'] as const) {
+        const input: DetectorShape = {
+            ...rectangle(0, 1, 0.904321, [0, 0, 4, 4]),
+            attributes: [
+                { spec_id: 7, value: '0.904321' },
+                { spec_id: 8, value: 'preserved' },
+            ],
+            confidenceAttributeSpecID: 7,
+        };
+        const [output] = process([input], method, 'ios', 1);
+
+        assert.equal(output.score, 0.904321, method);
+        assert.deepEqual(output.attributes, [
+            { spec_id: 7, value: '0.90' },
+            { spec_id: 8, value: 'preserved' },
+        ], method);
+        assert.deepEqual(input.attributes, [
+            { spec_id: 7, value: '0.904321' },
+            { spec_id: 8, value: 'preserved' },
+        ], method);
+    }
+});
+
+test('preserves mapped confidence text when the numeric score is missing or invalid', () => {
+    const shapes = [
+        {
+            ...rectangle(0, 1, undefined, [0, 0, 4, 4]),
+            attributes: [{ spec_id: 7, value: 'unavailable' }],
+            confidenceAttributeSpecID: 7,
+        },
+        {
+            ...rectangle(1, 1, undefined, [5, 0, 9, 4]),
+            score: Number.NaN,
+            attributes: [{ spec_id: 7, value: 'invalid' }],
+            confidenceAttributeSpecID: 7,
+        },
+    ];
+
+    const output = process(shapes, 'disabled');
+    assert.deepEqual(output.map((shape) => shape.attributes[0].value), ['unavailable', 'invalid']);
+});
+
 test('passes through points, polylines, and unsupported shape types unchanged', () => {
     const base = rectangle(0, 1, 0.9, [0, 0, 4, 4]);
     const shapes: DetectorShape[] = [
@@ -760,6 +823,52 @@ test('full NMM is transitive while greedy NMM follows only the anchor', () => {
     ];
     assert.equal(process(chain, 'nmm', 'iou', 0.3, 0, { width: 10, height: 5 }).length, 1);
     assert.equal(process(chain, 'greedy_nmm', 'iou', 0.3, 0, { width: 10, height: 5 }).length, 2);
+});
+
+test('full NMM assigns a compatible-label component to its highest-confidence member', () => {
+    const [merged] = process([
+        rectangle(0, 5, 0.8, [0, 0, 4, 4]),
+        rectangle(1, 6, 0.95, [2, 0, 6, 4]),
+        rectangle(2, 5, 0.7, [4, 0, 8, 4]),
+    ], 'nmm', 'iou', 0.3, 0, { width: 10, height: 5 }, [[5, 6]]);
+
+    assert.equal(merged.label_id, 6);
+    assert.equal(merged.score, 0.95);
+    assert.deepEqual(merged.points, [0, 0, 8, 4]);
+});
+
+test('greedy NMM uses the compatible-label anchor and does not absorb an unrelated class', () => {
+    const merged = process([
+        rectangle(0, 5, 0.9, [0, 0, 4, 4]),
+        rectangle(1, 6, 0.8, [2, 0, 6, 4]),
+        rectangle(2, 7, 0.7, [2, 0, 6, 4]),
+    ], 'greedy_nmm', 'iou', 0.3, 0, { width: 8, height: 6 }, [[5, 6]]);
+
+    assert.deepEqual(merged.map(({ label_id: labelID }) => labelID), [5, 7]);
+    assert.deepEqual(merged[0].points, [0, 0, 6, 4]);
+});
+
+test('Disabled bypasses compatible label groups', () => {
+    const shapes = [
+        rectangle(0, 5, 0.9, [0, 0, 4, 4]),
+        rectangle(1, 6, 0.8, [0, 0, 4, 4]),
+    ];
+
+    assert.deepEqual(process(shapes, 'disabled', 'ios', 1, 0, FRAME, [[5, 6]]), shapes);
+});
+
+test('rejects malformed or overlapping compatible label groups', () => {
+    const shapes = [rectangle(0, 5, 0.9, [0, 0, 4, 4])];
+    for (const labelGroups of [
+        [[5, 6], [6, 7]],
+        [[5, 5]],
+        [[5, 6.5]],
+    ]) {
+        assert.throws(
+            () => process(shapes, 'nms', 'ios', 1, 0, FRAME, labelGroups),
+            /label group/i,
+        );
+    }
 });
 
 test('unions mask holes and disconnected foreground into tight CVAT RLE bounds', () => {
@@ -843,7 +952,7 @@ test('uses maximum score and spreads anchor metadata while replacing only mapped
     assert.equal(merged.sourceIndex, 4);
     assert.equal(merged.score, 0.9);
     assert.deepEqual(merged.attributes, [
-        { spec_id: 7, value: '0.9000' },
+        { spec_id: 7, value: '0.90' },
         { spec_id: 8, value: 'anchor' },
     ]);
     assert.deepEqual(high.attributes, [
@@ -865,7 +974,7 @@ test('appends mapped confidence when the anchor attribute is absent', () => {
 
     assert.deepEqual(merged.attributes, [
         { spec_id: 8, value: 'anchor' },
-        { spec_id: 7, value: '0.9000' },
+        { spec_id: 7, value: '0.90' },
     ]);
 });
 
