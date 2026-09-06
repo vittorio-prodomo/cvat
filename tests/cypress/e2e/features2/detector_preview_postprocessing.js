@@ -718,7 +718,10 @@ context('Detector preview postprocessing', () => {
                         expect(scoredMask, 'new scored mask sidebar item').to.exist;
                         cy.wrap(scoredMask).within(() => {
                             cy.contains('.cvat-objects-sidebar-state-item-collapse', 'DETAILS').click();
-                            cy.contains('.cvat-object-item-attribute-wrapper', 'model_conf').within(() => {
+                            cy.contains(
+                                '.cvat-object-item-attribute-wrapper .cvat-text',
+                                /^model_conf$/,
+                            ).parents('.cvat-object-item-attribute-wrapper').within(() => {
                                 cy.get('.cvat-object-item-text-attribute').should('have.value', '0.9000');
                             });
                         });
