@@ -34,6 +34,8 @@ import {
 import openCVWrapper from 'utils/opencv-wrapper/opencv-wrapper';
 import primaryActionOnEnter from 'utils/primary-action-enter';
 import MaskMorphologyClient from 'utils/mask-morphology-client';
+import { DetectorPostprocessingClient } from 'utils/detector-postprocessing-client';
+import type { DetectorShape } from 'utils/detector-postprocessing';
 import {
     CombinedState, ActiveControl, ToolsBlockerState, PluginComponent,
 } from 'reducers';
@@ -48,6 +50,7 @@ import DetectorRunner, {
     AnnotateTaskRequestBody,
     type RegionOfInterest,
 } from 'components/model-runner-modal/detector-runner';
+import type { DetectorRunOptions } from 'components/model-runner-modal/detector-runner-config';
 import RegionOfInterestInputComponent from 'components/model-runner-modal/region-of-interest-input';
 import LabelSelector from 'components/label-selector/label-selector';
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -66,6 +69,14 @@ import withVisibilityHandling from './handle-popover-visibility';
 import ToolsTooltips from './interactor-tooltips';
 import TextMaskRefinement from './text-mask-refinement';
 import MaskMorphologyControl from './mask-morphology-control';
+import DetectorPreview from './detector-preview';
+import {
+    normalizeDetectorShapes,
+    toObjectStates,
+    toTemporaryCanvasShapes,
+    type SerializedDetectorResult,
+    type SerializedDetectorTag,
+} from './detector-result-adapter';
 
 interface StateToProps {
     canvasInstance: Canvas;
@@ -192,12 +203,13 @@ interface State {
     interactorRegionOfInterest: RegionOfInterest;
     detectorRegionOfInterest: RegionOfInterest;
     toolsPopoverVisible: boolean;
+    detectorPreviewActive: boolean;
+    detectorConfidence: number;
+    detectorPreviewProcessing: boolean;
+    detectorPreviewError: string | null;
+    detectorRawCount: number;
+    detectorVisibleCount: number;
 }
-
-type DetectorResults = Extract<
-    Awaited<ReturnType<typeof core.lambda.call>>,
-    { tags: unknown[]; shapes: unknown[]; tracks: unknown[] }
->;
 
 interface InteractionRequest {
     interactor: MLModel;
@@ -270,6 +282,26 @@ const onRemoveAnnotations = registerPlugin();
 
 export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private maskAdjustmentClient: MaskMorphologyClient | null = null;
+    private detectorPostprocessingClient: DetectorPostprocessingClient | null = null;
+    private detectorPreview: {
+        revision: number;
+        jobID: number | null;
+        frame: number | null;
+        raw: DetectorShape[];
+        displayed: DetectorShape[];
+        tags: SerializedDetectorTag[];
+        options: DetectorRunOptions | null;
+        debounce: number | null;
+    } = {
+        revision: 0,
+        jobID: null,
+        frame: null,
+        raw: [],
+        displayed: [],
+        tags: [],
+        options: null,
+        debounce: null,
+    };
     private maskAdjustments = new Map<number, {
         value: number;
         source: ToolsControlComponent['interaction']['latestResponse'][number];
@@ -338,6 +370,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             interactorRegionOfInterest: null,
             detectorRegionOfInterest: null,
             toolsPopoverVisible: false,
+            detectorPreviewActive: false,
+            detectorConfidence: 0.35,
+            detectorPreviewProcessing: false,
+            detectorPreviewError: null,
+            detectorRawCount: 0,
+            detectorVisibleCount: 0,
         };
 
         this.interaction = {
@@ -373,6 +411,13 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             approxPolyAccuracy, mode, activeTracker, thresholdValue,
         } = this.state;
 
+        if (
+            this.detectorPreview.jobID !== null &&
+            (prevProps.frame !== this.props.frame || prevProps.jobInstance.id !== jobInstance.id)
+        ) {
+            this.cancelDetectorPreview();
+        }
+
         if (isActivated && mode === 'interaction' && this.state.interactorPromptMode === 'concept' &&
             (prevProps.frame !== this.props.frame || prevProps.jobInstance.id !== jobInstance.id)) {
             this.cancelListener();
@@ -395,6 +440,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         }
 
         if (prevProps.isActivated && !isActivated) {
+            this.cancelDetectorPreview();
             this.cancelListener();
             window.removeEventListener('contextmenu', this.contextmenuDisabler);
 
@@ -483,10 +529,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
 
     public componentWillUnmount(): void {
         const { canvasInstance } = this.props;
-        this.clearMaskAdjustments();
-        onRemoveAnnotations(null);
         canvasInstance.html().removeEventListener('canvas.interacted', this.interactionListener);
         canvasInstance.html().removeEventListener('canvas.canceled', this.cancelListener);
+        this.cancelDetectorPreview(false);
+        this.clearMaskAdjustments();
+        onRemoveAnnotations(null);
     }
 
     private getSupportedTrackers(): MLModel[] {
@@ -2050,6 +2097,168 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         );
     }
 
+    private detectorRequestIsCurrent(snapshot: {
+        revision: number;
+        jobID: number;
+        taskID: number;
+        frame: number;
+        modelID: string | number;
+    }, model: MLModel): boolean {
+        const { jobInstance, frame } = this.props;
+        return snapshot.revision === this.detectorPreview.revision &&
+            snapshot.jobID === this.detectorPreview.jobID &&
+            snapshot.frame === this.detectorPreview.frame &&
+            snapshot.jobID === jobInstance.id &&
+            snapshot.taskID === jobInstance.taskId &&
+            snapshot.frame === frame &&
+            snapshot.modelID === model.id;
+    }
+
+    private getDetectorPostprocessingClient(): DetectorPostprocessingClient {
+        if (!this.detectorPostprocessingClient) {
+            this.detectorPostprocessingClient = new DetectorPostprocessingClient();
+        }
+        return this.detectorPostprocessingClient;
+    }
+
+    private cancelDetectorPreview = (resetState = true): void => {
+        const canvasPreviewActive = this.state.detectorPreviewActive;
+        this.detectorPreview.revision++;
+        if (this.detectorPreview.debounce !== null) {
+            window.clearTimeout(this.detectorPreview.debounce);
+        }
+        this.detectorPostprocessingClient?.dispose();
+        this.detectorPostprocessingClient = null;
+        this.detectorPreview = {
+            revision: this.detectorPreview.revision,
+            jobID: null,
+            frame: null,
+            raw: [],
+            displayed: [],
+            tags: [],
+            options: null,
+            debounce: null,
+        };
+        if (canvasPreviewActive) {
+            this.props.canvasInstance.interact({ enabled: false });
+        }
+        if (resetState) {
+            this.setState({
+                fetching: false,
+                detectorPreviewActive: false,
+                detectorConfidence: 0.35,
+                detectorPreviewProcessing: false,
+                detectorPreviewError: null,
+                detectorRawCount: 0,
+                detectorVisibleCount: 0,
+            });
+        }
+    };
+
+    private processDetectorPreview = async (
+        revision: number,
+        confidence: number,
+    ): Promise<void> => {
+        const {
+            raw, frame, options, jobID,
+        } = this.detectorPreview;
+        if (revision !== this.detectorPreview.revision || frame === null || jobID === null || !options) return;
+
+        this.setState({ detectorPreviewProcessing: true, detectorPreviewError: null });
+        try {
+            const displayed = await this.getDetectorPostprocessingClient().process(
+                raw,
+                { width: this.props.frameData.width, height: this.props.frameData.height },
+                {
+                    confidenceThreshold: confidence,
+                    postprocessing: options.postprocessing,
+                },
+            );
+            if (!displayed || revision !== this.detectorPreview.revision ||
+                jobID !== this.props.jobInstance.id || frame !== this.props.frame ||
+                confidence !== this.state.detectorConfidence) return;
+            this.detectorPreview.displayed = displayed;
+            this.props.canvasInstance.interact({
+                enabled: true,
+                command: 'put_shapes',
+                payload: { shapes: toTemporaryCanvasShapes(displayed) },
+            });
+            this.setState({
+                detectorPreviewProcessing: false,
+                detectorPreviewError: null,
+                detectorVisibleCount: displayed.length,
+            });
+        } catch (error: unknown) {
+            if (revision !== this.detectorPreview.revision ||
+                confidence !== this.state.detectorConfidence) return;
+            this.detectorPreview.displayed = [];
+            this.props.canvasInstance.interact({
+                enabled: true,
+                command: 'put_shapes',
+                payload: { shapes: [] },
+            });
+            this.setState({
+                detectorPreviewProcessing: false,
+                detectorPreviewError: error instanceof Error ? error.message : String(error),
+                detectorVisibleCount: 0,
+            });
+        }
+    };
+
+    private changeDetectorConfidence = (detectorConfidence: number): void => {
+        if (!this.state.detectorPreviewActive) return;
+        const { revision } = this.detectorPreview;
+        if (this.detectorPreview.debounce !== null) {
+            window.clearTimeout(this.detectorPreview.debounce);
+        }
+        this.setState({
+            detectorConfidence,
+            detectorPreviewProcessing: true,
+            detectorPreviewError: null,
+        });
+        this.detectorPreview.debounce = window.setTimeout(() => {
+            if (revision !== this.detectorPreview.revision) return;
+            this.detectorPreview.debounce = null;
+            this.processDetectorPreview(revision, detectorConfidence);
+        }, 75);
+    };
+
+    private retryDetectorPreview = async (): Promise<void> => {
+        if (!this.state.detectorPreviewActive) return;
+        this.detectorPostprocessingClient?.dispose();
+        this.detectorPostprocessingClient = null;
+        await this.processDetectorPreview(this.detectorPreview.revision, this.state.detectorConfidence);
+    };
+
+    private finishDetectorPreview = (): void => {
+        const {
+            displayed, tags, frame,
+        } = this.detectorPreview;
+        if (!this.state.detectorPreviewActive || this.state.detectorPreviewProcessing ||
+            this.state.detectorPreviewError || frame === null) return;
+        const snapshot = {
+            shapes: displayed.slice(),
+            tags: tags.slice(),
+            frame,
+            labels: this.props.jobInstance.labels,
+            zOrder: this.props.currentZOrder,
+        };
+        this.cancelDetectorPreview();
+        try {
+            const states = toObjectStates(
+                { tags: snapshot.tags, shapes: snapshot.shapes },
+                { labels: snapshot.labels, frame: snapshot.frame, zOrder: snapshot.zOrder },
+            );
+            this.props.createAnnotations(states);
+        } catch (error: unknown) {
+            notification.error({
+                description: <CVATMarkdown>{error instanceof Error ? error.message : String(error)}</CVATMarkdown>,
+                message: 'Detection error occurred',
+                duration: null,
+            });
+        }
+    };
+
     private renderDetectorBlock(): JSX.Element {
         const {
             jobInstance, detectors, currentZOrder, frame, labels, frameData,
@@ -2072,7 +2281,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             <DetectorRunner
                 withCleanup={false}
                 enableInteractiveOptions
-                loading={this.state.fetching}
+                loading={this.state.fetching || this.state.detectorPreviewProcessing}
                 models={detectors}
                 labels={labels}
                 dimension={jobInstance.dimension}
@@ -2082,79 +2291,121 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 onRegionOfInterestChange={(detectorRegionOfInterest) => (
                     this.setState({ detectorRegionOfInterest })
                 )}
-                runInference={async (model: MLModel, body: AnnotateTaskRequestBody) => {
-                    function loadAttributes(
-                        attributes: { spec_id: number; value: string }[],
-                    ): Record<number, string> {
-                        return Object.fromEntries(attributes.map((a) => [a.spec_id, a.value]));
-                    }
-
+                onModelChange={() => this.cancelDetectorPreview()}
+                runInference={async (
+                    model: MLModel,
+                    body: AnnotateTaskRequestBody,
+                    options: DetectorRunOptions,
+                ) => {
+                    this.cancelDetectorPreview();
+                    const snapshot = {
+                        revision: this.detectorPreview.revision,
+                        jobID: jobInstance.id,
+                        taskID: jobInstance.taskId,
+                        frame,
+                        modelID: model.id,
+                    };
+                    this.detectorPreview.jobID = snapshot.jobID;
+                    this.detectorPreview.frame = snapshot.frame;
+                    this.detectorPreview.options = options;
                     try {
-                        this.setState({ mode: 'detection', fetching: true });
+                        this.setState({
+                            mode: 'detection',
+                            fetching: true,
+                            detectorPreviewProcessing: false,
+                            detectorPreviewError: null,
+                        });
 
                         // The function call endpoint doesn't support the cleanup parameter.
                         const restOfBody = lodash.omit(body, 'cleanup');
 
                         const result = await core.lambda.call(jobInstance.taskId, model, {
                             ...restOfBody, type: 'annotate_frame', frame, job: jobInstance.id,
-                        }) as DetectorResults;
+                        }) as SerializedDetectorResult;
+                        if (!this.detectorRequestIsCurrent(snapshot, model)) return;
+                        this.setState({ fetching: false });
 
-                        const tagStates = result.tags.map((tag) => {
-                            const jobLabel = jobInstance.labels
-                                .find((jLabel) => jLabel.id === tag.label_id)!;
+                        const raw = normalizeDetectorShapes(result.shapes, jobInstance.labels);
+                        const tags = result.tags.slice();
+                        this.detectorPreview.raw = raw;
+                        this.detectorPreview.displayed = [];
+                        this.detectorPreview.tags = tags;
 
-                            return new core.classes.ObjectState({
-                                attributes: loadAttributes(tag.attributes),
-                                frame,
-                                label: jobLabel,
-                                objectType: ObjectType.TAG,
-                                source: core.enums.Source.AUTO,
-                            });
+                        if (!raw.length && !tags.length) {
+                            this.cancelDetectorPreview();
+                            message.info('No detections found');
+                            return;
+                        }
+
+                        if (!options.previewConfidence) {
+                            this.setState({ detectorPreviewProcessing: true });
+                            try {
+                                const displayed = await this.getDetectorPostprocessingClient().process(
+                                    raw,
+                                    { width: frameData.width, height: frameData.height },
+                                    { confidenceThreshold: null, postprocessing: options.postprocessing },
+                                );
+                                if (!displayed || !this.detectorRequestIsCurrent(snapshot, model)) return;
+                                const states = toObjectStates(
+                                    { tags, shapes: displayed },
+                                    { labels: jobInstance.labels, frame, zOrder: currentZOrder },
+                                );
+                                this.cancelDetectorPreview();
+                                createAnnotations(states);
+                            } catch (error: unknown) {
+                                if (!this.detectorRequestIsCurrent(snapshot, model)) return;
+                                this.cancelDetectorPreview();
+                                notification.error({
+                                    description: (
+                                        <CVATMarkdown>
+                                            {error instanceof Error ? error.message : String(error)}
+                                        </CVATMarkdown>
+                                    ),
+                                    message: 'Detection error occurred',
+                                    duration: null,
+                                });
+                            }
+                            return;
+                        }
+
+                        if (!raw.length) {
+                            const states = toObjectStates(
+                                { tags, shapes: [] },
+                                { labels: jobInstance.labels, frame, zOrder: currentZOrder },
+                            );
+                            this.cancelDetectorPreview();
+                            createAnnotations(states);
+                            return;
+                        }
+
+                        this.setState({
+                            detectorPreviewActive: true,
+                            detectorConfidence: 0.35,
+                            detectorPreviewProcessing: true,
+                            detectorPreviewError: null,
+                            detectorRawCount: raw.length,
+                            detectorVisibleCount: 0,
                         });
-
-                        const shapeStates = result.shapes.map((shape) => {
-                            const jobLabel = jobInstance.labels
-                                .find((jLabel) => jLabel.id === shape.label_id)!;
-
-                            return new core.classes.ObjectState({
-                                attributes: loadAttributes(shape.attributes),
-                                elements: shape.elements?.map((element) => {
-                                    const jobSublabel = jobLabel.structure!.sublabels
-                                        .find((sublabel) => sublabel.id === element.label_id)!;
-
-                                    return {
-                                        attributes: loadAttributes(element.attributes),
-                                        frame,
-                                        label: jobSublabel,
-                                        objectType: ObjectType.SHAPE,
-                                        occluded: element.occluded,
-                                        outside: element.outside,
-                                        points: element.points,
-                                        shapeType: element.type,
-                                        source: core.enums.Source.AUTO,
-                                    };
-                                }),
-                                frame,
-                                label: jobLabel,
-                                objectType: ObjectType.SHAPE,
-                                occluded: shape.occluded,
-                                points: shape.points,
-                                rotation: shape.rotation,
-                                shapeType: shape.type,
-                                source: core.enums.Source.AUTO,
-                                zOrder: currentZOrder,
-                            });
+                        this.props.onInteractionStart(model, -1, {
+                            command: 'put_shapes',
                         });
-
-                        createAnnotations([...tagStates, ...shapeStates]);
-                    } catch (error: any) {
+                        await this.processDetectorPreview(snapshot.revision, 0.35);
+                    } catch (error: unknown) {
+                        if (!this.detectorRequestIsCurrent(snapshot, model)) return;
+                        this.cancelDetectorPreview();
                         notification.error({
-                            description: <CVATMarkdown>{error.message}</CVATMarkdown>,
+                            description: (
+                                <CVATMarkdown>
+                                    {error instanceof Error ? error.message : String(error)}
+                                </CVATMarkdown>
+                            ),
                             message: 'Detection error occurred',
                             duration: null,
                         });
                     } finally {
-                        this.setState({ fetching: false });
+                        if (this.detectorRequestIsCurrent(snapshot, model)) {
+                            this.setState({ fetching: false });
+                        }
                     }
                 }}
             />
@@ -2179,7 +2430,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     type='card'
                     tabBarGutter={8}
                     activeKey={this.state.activeTab}
-                    onChange={(key) => this.setState({ activeTab: key as 'interactors' | 'detectors' | 'trackers' })}
+                    onChange={(key) => {
+                        if (key !== 'detectors') this.cancelDetectorPreview();
+                        this.setState({ activeTab: key as 'interactors' | 'detectors' | 'trackers' });
+                    }}
                     items={[{
                         key: 'interactors',
                         label: 'Interactors',
@@ -2210,7 +2464,9 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         } = this.props;
         const {
             fetching, approxPolyAccuracy, interactorResponseReceived, thresholdValue,
-            showConfidenceControl, mode, portals, convertMasksToPolygons,
+            showConfidenceControl, mode, portals, convertMasksToPolygons, detectorPreviewActive,
+            detectorConfidence, detectorPreviewProcessing, detectorPreviewError,
+            detectorRawCount, detectorVisibleCount,
         } = this.state;
 
         if (![...interactors, ...detectors, ...trackers].length) return null;
@@ -2297,6 +2553,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             </Modal>
         ) : null;
 
+        const detectorPreviewContent = isActivated && mode === 'detection' && detectorPreviewActive ? (
+            <DetectorPreview
+                rawCount={detectorRawCount}
+                visibleCount={detectorVisibleCount}
+                confidence={detectorConfidence}
+                processing={detectorPreviewProcessing}
+                error={detectorPreviewError}
+                onConfidenceChange={this.changeDetectorConfidence}
+                onRetry={this.retryDetectorPreview}
+                onCancel={this.cancelDetectorPreview}
+                onDone={this.finishDetectorPreview}
+            />
+        ) : null;
+
         return showAnyContent ? (
             <>
                 {this.renderRegionOfInterestOverlay()}
@@ -2310,6 +2580,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                 </CustomPopover>
                 {interactionContent}
                 {detectionContent}
+                {detectorPreviewContent}
                 {portals}
             </>
         ) : (

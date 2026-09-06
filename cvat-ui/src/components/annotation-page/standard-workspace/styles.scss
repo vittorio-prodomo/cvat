@@ -180,6 +180,41 @@
     margin-top: $grid-unit-size;
 }
 
+.cvat-detector-preview-wrapper {
+    position: absolute;
+    top: $grid-unit-size;
+    left: 50%;
+    transform: translateX(-50%);
+    width: $grid-unit-size * 45;
+    max-width: calc(100% - #{$grid-unit-size * 2});
+    z-index: 100;
+    padding: $grid-unit-size;
+    background: $background-color-2;
+    border: 1px solid $border-color-1;
+    border-radius: $border-radius-base;
+
+    .cvat-detector-preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .cvat-detector-preview-slider {
+        height: $grid-unit-size * 5;
+    }
+
+    .cvat-detector-preview-error {
+        display: block;
+        margin-bottom: $grid-unit-size;
+    }
+
+    .cvat-detector-preview-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: $grid-unit-size;
+    }
+}
+
 .cvat-tools-interactor-setups {
     > div {
         margin-top: $grid-unit-size * 2;

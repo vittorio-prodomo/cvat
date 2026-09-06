@@ -6,6 +6,18 @@
 
 const INTERMEDIATE_SHAPE = '.cvat_canvas_interact_intermediate_shape';
 const MASK_OUTLINE = '.cvat_canvas_interact_mask_outline';
+const detector = {
+    id: 'test-detector-preview',
+    name: 'Mock detector preview',
+    kind: 'detector',
+    description: 'Mock detector preview',
+    version: 2,
+    labels_v2: [{
+        name: 'damage',
+        type: 'mask',
+        attributes: [{ name: 'model_confidence', input_type: 'text', values: [] }],
+    }],
+};
 
 function getReactFiber(element) {
     const fiberKey = Object.getOwnPropertyNames(element).find(
@@ -69,6 +81,66 @@ function clearTemporaryShapes(win) {
     }
 }
 
+function openDetectorsWithModels(models) {
+    cy.intercept('HEAD', '**/api/lambda/functions**', { statusCode: 200 }).as('previewModelsHead');
+    cy.intercept('GET', '**/api/lambda/functions**', { statusCode: 200, body: models }).as('previewModels');
+    cy.reload();
+    cy.wait('@previewModelsHead');
+    cy.wait('@previewModels');
+    cy.get('.cvat-canvas-container').should('exist');
+    cy.get('.cvat-tools-control').should('exist').click();
+    cy.get('.cvat-tools-control-popover:visible').within(() => {
+        cy.contains('.ant-tabs-tab', 'Detectors').click();
+        cy.contains('.ant-row', 'Model:').find('.ant-select').click();
+    });
+    cy.get('.ant-select-dropdown:visible').contains('.ant-select-item-option-content', models[0].name).click();
+}
+
+function makePreviewResponse(taskLabelIds, taskAttributeSpecIds) {
+    return {
+        tags: [{
+            label_id: taskLabelIds.damage,
+            frame: 0,
+            group: 0,
+            source: 'auto',
+            attributes: [],
+        }],
+        tracks: [],
+        shapes: [
+            {
+                label_id: taskLabelIds.damage,
+                frame: 0,
+                group: 0,
+                source: 'auto',
+                type: 'mask',
+                points: [0, 100, 10, 10, 19, 19],
+                score: 0.90,
+                occluded: false,
+                outside: false,
+                rotation: 0,
+                z_order: 0,
+                attributes: [{ spec_id: taskAttributeSpecIds.damage, value: '0.9000' }],
+                elements: [],
+            },
+            {
+                label_id: taskLabelIds.damage,
+                frame: 0,
+                group: 0,
+                source: 'auto',
+                type: 'mask',
+                points: [0, 36, 12, 12, 17, 17],
+                score: 0.30,
+                occluded: false,
+                outside: false,
+                rotation: 0,
+                z_order: 0,
+                attributes: [{ spec_id: taskAttributeSpecIds.damage, value: '0.3000' }],
+                elements: [],
+            },
+        ],
+    };
+}
+
 function expectClose(actual, expected) {
     expect(Number.parseFloat(actual)).to.be.closeTo(expected, 0.001);
 }
@@ -106,7 +178,17 @@ context('Detector preview postprocessing', () => {
         cy.visit('/');
         cy.headlessLogin({ nextURL: '/tasks' });
         cy.headlessCreateTask({
-            labels: [{ name: 'object', attributes: [], type: 'any' }],
+            labels: [{
+                name: 'damage',
+                type: 'any',
+                attributes: [{
+                    name: 'model_confidence',
+                    mutable: false,
+                    input_type: 'text',
+                    default_value: '',
+                    values: [],
+                }],
+            }],
             name: taskName,
             project_id: null,
             source_storage: { location: 'local' },
@@ -272,5 +354,44 @@ context('Detector preview postprocessing', () => {
         });
         cy.get(INTERMEDIATE_SHAPE).should('not.exist');
         cy.get(MASK_OUTLINE).should('not.exist');
+    });
+
+    it('holds mapped detector results until the preview transaction is accepted', () => {
+        const taskLabelIds = {};
+        const taskAttributeSpecIds = {};
+        openDetectorsWithModels([detector]);
+        cy.window().then((win) => {
+            const damage = requireToolsControlComponent(win).props.jobInstance.labels
+                .find(({ name }) => name === 'damage');
+            taskLabelIds.damage = damage.id;
+            taskAttributeSpecIds.damage = damage.attributes
+                .find(({ name }) => name === 'model_confidence').id;
+        });
+
+        cy.get('.cvat-detector-preview-confidence-checkbox input').should('be.checked');
+        cy.get('.cvat-detector-confidence-threshold input').should('be.disabled');
+        cy.get('.cvat-detector-postprocessing-method').should('contain', 'NMS');
+        cy.get('.cvat-detector-postprocessing-metric').should('contain', 'IoS');
+        cy.get('.cvat-detector-postprocessing-threshold input').should('have.value', '0.70');
+
+        cy.intercept('POST', '**/api/lambda/functions/test-detector-preview**', (request) => {
+            expect(request.body.threshold).to.equal(0.1);
+            expect(request.body).not.to.have.property('cleanup');
+            expect(request.body).not.to.have.property('postprocessing');
+            expect(request.body).not.to.have.property('previewConfidence');
+            request.reply({
+                statusCode: 200,
+                body: makePreviewResponse(taskLabelIds, taskAttributeSpecIds),
+            });
+        }).as('previewCall');
+        cy.contains('button', 'Annotate').click();
+        cy.wait('@previewCall');
+        cy.get('.cvat-objects-sidebar-state-item').should('not.exist');
+        cy.get('.cvat-detector-preview-wrapper').should('contain', '1 / 2 results');
+        cy.get(INTERMEDIATE_SHAPE).should('have.length', 1);
+        cy.get('.cvat-detector-preview-cancel').click();
+        cy.get('.cvat-detector-preview-wrapper').should('not.exist');
+        cy.get(INTERMEDIATE_SHAPE).should('not.exist');
+        cy.get('.cvat-objects-sidebar-state-item').should('not.exist');
     });
 });
