@@ -13,8 +13,15 @@ def test_function_metadata_and_handler_agree_on_native_detector_contract(load_ar
     assert annotations["type"] == "detector"
     assert manifest["spec"]["handler"] == "main:handler"
     labels = json.loads(annotations["spec"])
-    assert labels == [{"id": index, "name": name, "type": "mask"}
-                      for index, name in enumerate(model.CLASS_NAMES)]
+    assert labels == [
+        {
+            "id": index,
+            "name": name,
+            "type": "mask",
+            "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}],
+        }
+        for index, name in enumerate(model.CLASS_NAMES)
+    ]
     assert metadata["classes"] == list(model.CLASS_NAMES)
     assert metadata["input_size"] == model.INPUT_SIZE
     assert metadata["checkpoint_sha256"] == model.CHECKPOINT_SHA256

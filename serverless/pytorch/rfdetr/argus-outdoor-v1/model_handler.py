@@ -1,19 +1,22 @@
 """Pinned Argus Outdoor v1 inference and native CVAT detector annotations."""
 
-from collections.abc import Mapping
 import hashlib
 import math
 import os
-from pathlib import Path
 import threading
+from collections.abc import Mapping
+from pathlib import Path
 
 import numpy as np
-
 from geometry import INPUT_SIZE, encode_dense_mask, letterbox, restore_mask
 
-
 CLASS_NAMES = (
-    "crack", "crack_map", "spall", "exposed_rebar", "efflorescence", "concrete_water_marks"
+    "crack",
+    "crack_map",
+    "spall",
+    "exposed_rebar",
+    "efflorescence",
+    "concrete_water_marks",
 )
 DEFAULT_THRESHOLD = 0.2
 CHECKPOINT_SHA256 = "bb57ce7417e8bab675910d5278057ba456389a3683764248f77c5533fb1cbb8d"
@@ -69,19 +72,21 @@ class ArgusBackend:
         )
         state = load_checkpoint_state_dict(self.checkpoint_path, torch)
         self._adapter = RFDETRAdapter()
-        self._model = self._adapter.create_model(ModelConfig(
-            name="rf-detr-seg-large",
-            pretrained="none",
-            num_classes=len(CLASS_NAMES),
-            extra={
-                "mask_downsample_ratio": 2,
-                # Annotation policy: decode at full 504, not native low-res eval.
-                "val_mask_downsample": 1,
-                "val_conf_thres": DEFAULT_THRESHOLD,
-                "val_nms_iou": 0.7,
-                "val_max_det": 100,
-            },
-        ))
+        self._model = self._adapter.create_model(
+            ModelConfig(
+                name="rf-detr-seg-large",
+                pretrained="none",
+                num_classes=len(CLASS_NAMES),
+                extra={
+                    "mask_downsample_ratio": 2,
+                    # Annotation policy: decode at full 504, not native low-res eval.
+                    "val_mask_downsample": 1,
+                    "val_conf_thres": DEFAULT_THRESHOLD,
+                    "val_nms_iou": 0.7,
+                    "val_max_det": 100,
+                },
+            )
+        )
         self._model.load_state_dict(state, strict=True)
         self._model = self._model.to(device, dtype=torch.float32).eval()
         if logger is not None:
@@ -126,26 +131,36 @@ class ModelHandler:
         threshold = validate_threshold(threshold)
         padded, frame = letterbox(np.asarray(image.convert("RGB")))
         prediction = self.backend.predict(padded, threshold)
-        masks, labels, scores = (np.asarray(prediction[key]) for key in ("masks", "labels", "scores"))
+        masks, labels, scores = (
+            np.asarray(prediction[key]) for key in ("masks", "labels", "scores")
+        )
         if scores.ndim != 1 or labels.shape != scores.shape:
             raise ValueError("Inconsistent Argus prediction dimensions")
         if masks.shape != (len(scores), INPUT_SIZE, INPUT_SIZE):
             raise ValueError(f"Expected Argus masks with shape (N, {INPUT_SIZE}, {INPUT_SIZE})")
         if masks.dtype != np.bool_:
             raise ValueError("Expected decoded boolean Argus masks")
-        if not np.issubdtype(labels.dtype, np.integer) or np.any((labels < 0) | (labels >= len(CLASS_NAMES))):
+        if not np.issubdtype(labels.dtype, np.integer) or np.any(
+            (labels < 0) | (labels >= len(CLASS_NAMES))
+        ):
             raise ValueError("Argus returned an invalid class ID")
-        if not np.issubdtype(scores.dtype, np.number) or not np.all(np.isfinite(scores)) or np.any((scores < 0) | (scores > 1)):
+        if (
+            not np.issubdtype(scores.dtype, np.number)
+            or not np.all(np.isfinite(scores))
+            or np.any((scores < 0) | (scores > 1))
+        ):
             raise ValueError("Argus returned an invalid confidence score")
         annotations = []
         for mask, label, score in zip(masks, labels, scores):
             encoded = encode_dense_mask(restore_mask(mask, frame))
             if encoded is not None:
-                annotations.append({
-                    "label": CLASS_NAMES[int(label)],
-                    "type": "mask",
-                    "confidence": float(score),
-                    "attributes": [],
-                    "mask": encoded,
-                })
+                annotations.append(
+                    {
+                        "label": CLASS_NAMES[int(label)],
+                        "type": "mask",
+                        "confidence": float(score),
+                        "attributes": [{"name": "model_confidence", "value": str(float(score))}],
+                        "mask": encoded,
+                    }
+                )
         return annotations

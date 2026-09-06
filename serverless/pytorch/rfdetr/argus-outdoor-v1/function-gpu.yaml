@@ -10,12 +10,12 @@ metadata:
     framework: pytorch
     spec: |
       [
-        {"id": 0, "name": "crack", "type": "mask"},
-        {"id": 1, "name": "crack_map", "type": "mask"},
-        {"id": 2, "name": "spall", "type": "mask"},
-        {"id": 3, "name": "exposed_rebar", "type": "mask"},
-        {"id": 4, "name": "efflorescence", "type": "mask"},
-        {"id": 5, "name": "concrete_water_marks", "type": "mask"}
+        {"id": 0, "name": "crack", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]},
+        {"id": 1, "name": "crack_map", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]},
+        {"id": 2, "name": "spall", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]},
+        {"id": 3, "name": "exposed_rebar", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]},
+        {"id": 4, "name": "efflorescence", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]},
+        {"id": 5, "name": "concrete_water_marks", "type": "mask", "attributes": [{"name": "model_confidence", "input_type": "text", "values": [""]}]}
       ]
 spec:
   description: Six-class Argus instance segmentation on a frame or CVAT region of interest
