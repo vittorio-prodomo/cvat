@@ -2,13 +2,10 @@ import hashlib
 from types import SimpleNamespace
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
-
-CLASSES = (
-    "crack", "crack_map", "spall", "exposed_rebar", "efflorescence", "concrete_water_marks"
-)
+CLASSES = ("crack", "crack_map", "spall", "exposed_rebar", "efflorescence", "concrete_water_marks")
 
 
 class ArrayBackend:
@@ -32,8 +29,11 @@ def test_model_handler_maps_six_raw_classes_and_restores_dense_masks(load_argus)
     assert tuple(shape["label"] for shape in shapes) == CLASSES
     for index, shape in enumerate(shapes):
         assert shape == {
-            "label": CLASSES[index], "type": "mask", "confidence": 0.9,
-            "attributes": [], "mask": [1, index, index, index, index],
+            "label": CLASSES[index],
+            "type": "mask",
+            "confidence": 0.9,
+            "attributes": [{"name": "model_confidence", "value": "0.9"}],
+            "mask": [1, index, index, index, index],
         }
     assert backend.calls[0][0].shape == (504, 504, 3)
     assert backend.calls[0][1] == 0.25
@@ -41,12 +41,15 @@ def test_model_handler_maps_six_raw_classes_and_restores_dense_masks(load_argus)
 
 def test_empty_prediction_and_masks_wholly_in_padding_have_no_annotations(load_argus):
     module = load_argus("model_handler")
-    backend = ArrayBackend(np.zeros((0, 504, 504), dtype=bool), np.array([], dtype=int), np.array([]))
+    backend = ArrayBackend(
+        np.zeros((0, 504, 504), dtype=bool), np.array([], dtype=int), np.array([])
+    )
     model = module.ModelHandler(backend=backend)
     assert model.handle(image=Image.new("RGB", (504, 503))) == []
     backend.prediction = {
         "masks": np.pad(np.ones((1, 1, 504), dtype=bool), ((0, 0), (503, 0), (0, 0))),
-        "labels": np.array([0]), "scores": np.array([0.9]),
+        "labels": np.array([0]),
+        "scores": np.array([0.9]),
     }
     assert model.handle(image=Image.new("RGB", (504, 503))) == []
 
@@ -67,12 +70,15 @@ def test_model_handler_rejects_invalid_model_scores(load_argus, score):
         module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (17, 11)))
 
 
-@pytest.mark.parametrize("field,value", [
-    ("masks", np.zeros((1, 252, 252), dtype=bool)),
-    ("masks", np.zeros((0, 504, 504), dtype=bool)),
-    ("scores", np.array([[0.9]])),
-    ("labels", np.array([0, 1])),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("masks", np.zeros((1, 252, 252), dtype=bool)),
+        ("masks", np.zeros((0, 504, 504), dtype=bool)),
+        ("scores", np.array([[0.9]])),
+        ("labels", np.array([0, 1])),
+    ],
+)
 def test_model_handler_rejects_inconsistent_prediction_dimensions(load_argus, field, value):
     module = load_argus("model_handler")
     backend = ArrayBackend(np.ones((1, 504, 504), dtype=bool), np.array([0]), np.array([0.9]))
@@ -94,7 +100,9 @@ def test_threshold_default_and_inclusive_request_range(load_argus, value, expect
     assert module.validate_threshold(value) == expected
 
 
-@pytest.mark.parametrize("value", [True, False, "0.2", [], {}, np.nan, np.inf, -np.inf, -0.01, 1.01])
+@pytest.mark.parametrize(
+    "value", [True, False, "0.2", [], {}, np.nan, np.inf, -np.inf, -0.01, 1.01]
+)
 def test_threshold_rejects_invalid_values(load_argus, value):
     module = load_argus("model_handler")
     with pytest.raises(ValueError, match="threshold"):
@@ -114,7 +122,9 @@ def test_checkpoint_hash_is_checked_before_safe_loading_and_prefix_is_stripped(
         return {"state_dict": {"model.layer.weight": "tensor", "criterion.weight": "unused"}}
 
     monkeypatch.setattr(module, "CHECKPOINT_SHA256", hashlib.sha256(path.read_bytes()).hexdigest())
-    assert module.load_checkpoint_state_dict(path, SimpleNamespace(load=fake_load)) == {"layer.weight": "tensor"}
+    assert module.load_checkpoint_state_dict(path, SimpleNamespace(load=fake_load)) == {
+        "layer.weight": "tensor"
+    }
     assert calls == [(b"a pinned checkpoint", "cpu", True)]
     path.write_bytes(b"changed checkpoint")
     with pytest.raises(ValueError, match="SHA256"):
@@ -122,12 +132,18 @@ def test_checkpoint_hash_is_checked_before_safe_loading_and_prefix_is_stripped(
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("checkpoint", [None, {}, {"state_dict": {}}, {"state_dict": []},
-                                        {"state_dict": {"layer.weight": 1}}])
-def test_checkpoint_missing_or_empty_model_state_fails(load_argus, tmp_path, monkeypatch, checkpoint):
+@pytest.mark.parametrize(
+    "checkpoint",
+    [None, {}, {"state_dict": {}}, {"state_dict": []}, {"state_dict": {"layer.weight": 1}}],
+)
+def test_checkpoint_missing_or_empty_model_state_fails(
+    load_argus, tmp_path, monkeypatch, checkpoint
+):
     module = load_argus("model_handler")
     path = tmp_path / "weights.ckpt"
     path.write_bytes(b"pinned")
     monkeypatch.setattr(module, "CHECKPOINT_SHA256", hashlib.sha256(b"pinned").hexdigest())
     with pytest.raises(ValueError, match="state_dict|model"):
-        module.load_checkpoint_state_dict(path, SimpleNamespace(load=lambda *args, **kwargs: checkpoint))
+        module.load_checkpoint_state_dict(
+            path, SimpleNamespace(load=lambda *args, **kwargs: checkpoint)
+        )
