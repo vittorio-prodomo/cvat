@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from allauth.account.adapter import get_adapter
 from django.conf import settings
@@ -15,6 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 
 from cvat.apps.engine.models import TimestampedModel
+from cvat.apps.iam.utils import get_dummy_or_regular_user
 
 
 class Organization(TimestampedModel):
@@ -97,9 +99,13 @@ class Invitation(models.Model):
             raise ImproperlyConfigured("Email backend is not configured")
 
         target_email = self.membership.user.email
+        dummy_user, _ = get_dummy_or_regular_user(target_email)
+        auth_path = "register" if dummy_user else "login"
+        invitation_query = urlencode({"email": target_email, "invitation": self.key})
         current_site = get_current_site(request)
         site_name = current_site.name
         domain = current_site.domain
+        protocol = "https" if request.is_secure() else "http"
         context = {
             "email": target_email,
             "invitation_key": self.key,
@@ -107,7 +113,8 @@ class Invitation(models.Model):
             "site_name": site_name,
             "invitation_owner": self.owner.get_username(),
             "organization_name": self.membership.organization.slug,
-            "protocol": "https" if request.is_secure() else "http",
+            "protocol": protocol,
+            "invitation_url": f"{protocol}://{domain}/auth/{auth_path}?{invitation_query}",
         }
 
         get_adapter(request).send_mail("invitation/invitation", target_email, context)

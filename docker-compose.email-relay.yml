@@ -1,0 +1,42 @@
+services:
+  cvat_server:
+    depends_on:
+      cvat_mail_relay:
+        condition: service_healthy
+    environment:
+      DJANGO_SETTINGS_MODULE: cvat.settings.production_email
+      CVAT_EMAIL_HOST: cvat_mail_relay
+      CVAT_EMAIL_PORT: "25"
+      CVAT_EMAIL_TIMEOUT: "10"
+      CVAT_DEFAULT_FROM_EMAIL: "CVAT <no-reply@cvat.the-commander.net>"
+    networks:
+      cvat_mail:
+
+  cvat_mail_relay:
+    container_name: cvat_mail_relay
+    image: cvat/mail-relay:${CVAT_VERSION:-dev}
+    build:
+      context: .
+      dockerfile: components/email-relay/Dockerfile
+    restart: always
+    secrets:
+      - postmark_smtp_access_key
+      - postmark_smtp_secret_key
+    volumes:
+      - cvat_mail_queue:/var/spool/postfix
+    networks:
+      cvat_mail:
+    stop_grace_period: 30s
+
+volumes:
+  cvat_mail_queue:
+
+networks:
+  cvat_mail:
+    driver: bridge
+
+secrets:
+  postmark_smtp_access_key:
+    file: ${CVAT_POSTMARK_SMTP_ACCESS_KEY_FILE:-/etc/cvat/secrets/postmark_smtp_access_key}
+  postmark_smtp_secret_key:
+    file: ${CVAT_POSTMARK_SMTP_SECRET_KEY_FILE:-/etc/cvat/secrets/postmark_smtp_secret_key}

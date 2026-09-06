@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT-Only Postmark Relay Design</title>
+<link rel="stylesheet" media="(prefers-color-scheme: light)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<link rel="stylesheet" media="(prefers-color-scheme: dark)" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" integrity="sha512-rO+olRTkcf304DQBxSWxln8JXCzTHlKnIdnMUwYvQa9/Jd4cQaNkItIUj6Z4nvW1dqK0SKXLbn9h4KwZTNtAyw==" crossorigin="anonymous" referrerpolicy="no-referrer">
+<style>
+  :root {
+    --bg:#fbfbfa; --surface:#fff; --text:#1f2328; --muted:#656d76; --border:#e3e6ea;
+    --accent:#4f46e5; --accent-soft:#eef0fe; --code-bg:#f5f6f8;
+    --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);
+    --radius:12px; --info:#2563eb; --info-bg:#eef4ff; --warn:#b45309;
+    --warn-bg:#fff7ed; --ok:#047857; --ok-bg:#ecfdf5; --bad:#b91c1c; --bad-bg:#fef2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1115; --surface:#161922; --text:#e6e8eb; --muted:#9aa4b2;
+      --border:#262b36; --accent:#8b89ff; --accent-soft:#1e2030; --code-bg:#1b1f29;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 4px 20px rgba(0,0,0,.3);
+      --info-bg:#13213b; --warn-bg:#2a1f12; --ok-bg:#0e231c; --bad-bg:#2a1416; }
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+  .topbar { position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:16px; padding:12px 24px; background:color-mix(in srgb,var(--bg) 85%,transparent); backdrop-filter:blur(8px); border-bottom:1px solid var(--border); }
+  .topbar .title { font-weight:650; font-size:15px; letter-spacing:-.01em; }
+  .topbar .spacer { flex:1; }
+  .action { font:inherit; font-size:13px; font-weight:550; cursor:pointer; padding:6px 12px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text); transition:.15s; }
+  .action:hover { border-color:var(--accent); color:var(--accent); }
+  .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:40px; max-width:1140px; margin:0 auto; padding:40px 24px 96px; }
+  .toc { position:sticky; top:76px; align-self:start; font-size:13.5px; max-height:calc(100vh - 100px); overflow:auto; }
+  .toc-title { text-transform:uppercase; letter-spacing:.08em; font-size:11px; color:var(--muted); margin:0 0 10px 4px; }
+  .toc a { display:block; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:7px; border-left:2px solid transparent; line-height:1.4; }
+  .toc a:hover { color:var(--text); background:var(--accent-soft); }
+  .toc a.h3 { padding-left:22px; font-size:12.5px; }
+  .toc a.active { color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); }
+  .content { min-width:0; }
+  .content > *:first-child { margin-top:0; }
+  h1 { font-size:30px; line-height:1.2; letter-spacing:-.02em; margin:0 0 6px; }
+  .doc-sub { color:var(--muted); font-size:16px; margin:0 0 4px; }
+  .doc-meta { color:var(--muted); font-size:13px; margin:0 0 28px; }
+  h2 { font-size:22px; letter-spacing:-.01em; margin:44px 0 14px; padding-bottom:6px; border-bottom:1px solid var(--border); scroll-margin-top:76px; }
+  h3 { font-size:17px; margin:28px 0 10px; scroll-margin-top:76px; }
+  a { color:var(--accent); }
+  code { background:var(--code-bg); padding:.15em .4em; border-radius:5px; font-size:.88em; font-family:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace; }
+  pre { background:var(--code-bg); border:1px solid var(--border); border-radius:var(--radius); padding:16px; overflow:auto; }
+  pre code { background:none; padding:0; font-size:13px; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; margin:16px 0; font-size:14.5px; }
+  th,td { text-align:left; padding:9px 12px; border:1px solid var(--border); vertical-align:top; }
+  th { background:var(--accent-soft); font-weight:600; }
+  .callout { border:1px solid var(--border); border-left-width:4px; border-radius:10px; padding:12px 16px; margin:18px 0; background:var(--surface); }
+  .callout .label { font-weight:650; font-size:13px; margin-bottom:2px; }
+  .callout p:last-child { margin-bottom:0; }
+  .callout.info { border-left-color:var(--info); background:var(--info-bg); } .callout.info .label { color:var(--info); }
+  .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); } .callout.warn .label { color:var(--warn); }
+  .callout.ok { border-left-color:var(--ok); background:var(--ok-bg); } .callout.ok .label { color:var(--ok); }
+  .callout.bad { border-left-color:var(--bad); background:var(--bad-bg); } .callout.bad .label { color:var(--bad); }
+  .option-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:20px 0; }
+  .option-card { border:1px solid var(--border); border-radius:var(--radius); padding:18px; background:var(--surface); box-shadow:var(--shadow); }
+  .option-card.pick { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent),var(--shadow); }
+  .option-card h4 { margin:0 0 4px; font-size:16px; }
+  .option-card .tag { display:inline-block; font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-soft); padding:2px 8px; border-radius:999px; margin-bottom:10px; }
+  .option-card ul { margin:8px 0 0; padding-left:18px; font-size:14px; }
+  .option-card .pro::marker { content:"✓ "; } .option-card .pro { color:var(--ok); }
+  .option-card .con::marker { content:"✗ "; } .option-card .con { color:var(--bad); }
+  .option-card .pro span,.option-card .con span { color:var(--text); }
+  details { border:1px solid var(--border); border-radius:10px; padding:0 16px; margin:16px 0; background:var(--surface); }
+  details[open] { padding-bottom:8px; }
+  summary { cursor:pointer; font-weight:600; padding:12px 0; list-style-position:inside; }
+  summary:hover { color:var(--accent); }
+  .mermaid { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin:18px 0; text-align:center; }
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:999px; font-size:13px; font-weight:550; opacity:0; pointer-events:none; transition:.25s; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  footer { max-width:1140px; margin:0 auto; padding:24px; color:var(--muted); font-size:12.5px; border-top:1px solid var(--border); }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; gap:0; } .toc { position:static; max-height:none; margin-bottom:24px; border:1px solid var(--border); border-radius:10px; padding:14px; } }
+  @media print { .topbar,.toc,.action,.toast { display:none!important; } .layout { display:block; padding:0; max-width:none; } .option-card,.callout,pre,.mermaid,details { box-shadow:none; break-inside:avoid; } body { background:#fff; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="title">CVAT-Only Postmark Relay Design</span>
+  <span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents"><div class="toc-title">On this page</div><div id="toc-list"></div></nav>
+  <main class="content">
+    <h1>CVAT-Only Postmark Relay Design</h1>
+    <p class="doc-sub">A private, queue-backed outbound email path for CVAT invitations and account messages.</p>
+    <p class="doc-meta">2026-09-02 · CVAT fork · Approved design</p>
+
+    <h2>Executive summary</h2>
+    <p>CVAT will submit one-to-one transactional messages to a private Postfix container. Postfix will queue those messages durably and relay them to Postmark over authenticated STARTTLS. Only <code>cvat_server</code> will share the relay network; the relay will publish no host port and provide no inbound mailboxes.</p>
+    <div class="callout ok"><div class="label">Decision</div><p>Use a containerized, CVAT-only Postfix smarthost. Keep Postmark credentials outside Git and outside the Django container.</p></div>
+
+    <h2>Context and completed prerequisites</h2>
+    <ul>
+      <li>Postmark account approval is complete.</li>
+      <li><code>cvat.the-commander.net</code> is verified for DKIM and a custom Return-Path.</li>
+      <li>The parent DMARC policy remains <code>p=reject</code> and sends aggregate reports to Postmark's reporting service.</li>
+      <li>The root domain uses a null MX, while the website A record remains independent.</li>
+      <li>A dedicated transactional SMTP token has been generated and stored by the operator; no credential value belongs in this repository or document.</li>
+      <li>The current CVAT production settings deliberately set <code>EMAIL_BACKEND = None</code>.</li>
+    </ul>
+
+    <h2>Options considered</h2>
+    <div class="option-grid">
+      <div class="option-card pick"><span class="tag">Selected</span><h4>Compose-managed Postfix</h4><p>A dedicated relay container shipped with an opt-in Compose overlay.</p><ul><li class="pro"><span>Reproducible and isolated with a persistent queue</span></li><li class="pro"><span>Django never sees the Postmark token</span></li><li class="con"><span>Adds a small image and service to maintain</span></li></ul></div>
+      <div class="option-card"><h4>Host-level Postfix</h4><p>Install and configure Postfix through the host operating system.</p><ul><li class="pro"><span>Independent of Compose lifecycle</span></li><li class="con"><span>Machine-specific configuration and rollback</span></li><li class="con"><span>Harder to review alongside the fork</span></li></ul></div>
+      <div class="option-card"><h4>Direct Django SMTP</h4><p>Connect <code>cvat_server</code> directly to Postmark.</p><ul><li class="pro"><span>Fewest components</span></li><li class="con"><span>Credential enters the application container</span></li><li class="con"><span>No independent durable local queue</span></li></ul></div>
+    </div>
+
+    <h2>Architecture and trust boundaries</h2>
+    <pre class="mermaid">
+flowchart LR
+  UI[CVAT organization UI] --> API[cvat_server]
+  API -->|SMTP port 25\nprivate Docker network| RELAY[cvat_mail_relay\nPostfix]
+  RELAY -->|STARTTLS port 587\nSMTP token| PM[smtp.postmarkapp.com]
+  PM --> INBOX[Recipient mailbox]
+  PM --> ACTIVITY[Postmark Activity\nand suppression data]
+  SECRET[/root-owned host secrets/] -. read only .-> RELAY
+  QUEUE[(named queue volume)] --- RELAY
+    </pre>
+    <ul>
+      <li>A dedicated bridge network connects only <code>cvat_server</code> and <code>cvat_mail_relay</code> as Compose services.</li>
+      <li>The bridge permits outbound NAT so Postfix can reach Postmark, but no relay port is published on the host.</li>
+      <li>Postfix permits relay only from its trusted dedicated subnet. The Docker host remains part of the administrator trust boundary and can potentially address bridge containers directly.</li>
+      <li>The ordinary CVAT network and services remain unchanged; workers do not receive mail settings.</li>
+      <li>The Postfix queue uses a named volume so pending mail survives container replacement.</li>
+    </ul>
+
+    <h2>Component responsibilities</h2>
+    <table>
+      <thead><tr><th>Component</th><th>Responsibility</th><th>Must not do</th></tr></thead>
+      <tbody>
+        <tr><td><code>cvat.settings.production_email</code></td><td>Enable Django SMTP, validate non-secret relay settings, define the sender and finite timeout.</td><td>Read or expose Postmark credentials.</td></tr>
+        <tr><td><code>cvat_server</code></td><td>Render and submit invitations and account messages to the private relay.</td><td>Connect directly to Postmark.</td></tr>
+        <tr><td><code>cvat_mail_relay</code></td><td>Accept trusted CVAT mail, queue it, and submit it to Postmark with SASL and mandatory TLS.</td><td>Accept host/Internet SMTP or deliver local mailboxes.</td></tr>
+        <tr><td>Postmark</td><td>Perform Internet delivery, DKIM signing, aligned Return-Path handling, bounce tracking and recipient suppression.</td><td>Provide an inbox for <code>no-reply@cvat.the-commander.net</code>.</td></tr>
+        <tr><td>Compose overlay</td><td>Add the service, network, volume, settings and secret mounts as an explicit deployment option.</td><td>Alter upstream's default deployment when omitted.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Configuration contract</h2>
+    <h3>Django side</h3>
+    <pre><code class="language-text">EMAIL_BACKEND = django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST = cvat_mail_relay
+EMAIL_PORT = 25
+EMAIL_USE_TLS = false
+EMAIL_USE_SSL = false
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = CVAT &lt;no-reply@cvat.the-commander.net&gt;</code></pre>
+    <p>The private container hop is unauthenticated because access is enforced by network isolation. Authentication and encryption are mandatory on the Internet-facing Postfix-to-Postmark hop.</p>
+
+    <h3>Postfix side</h3>
+    <pre><code class="language-text">relayhost = [smtp.postmarkapp.com]:587
+smtp_sasl_auth_enable = yes
+smtp_tls_security_level = encrypt
+smtpd_relay_restrictions = permit_mynetworks,reject
+disable_vrfy_command = yes</code></pre>
+    <p>The implementation plan will pin the base image, install the smallest required Postfix/SASL/CA packages, and render the private credential map only when the container starts.</p>
+
+    <h2>Secret lifecycle</h2>
+    <ol>
+      <li>The operator creates root-owned files outside the repository at <code>/etc/cvat/secrets/postmark_smtp_access_key</code> and <code>/etc/cvat/secrets/postmark_smtp_secret_key</code>.</li>
+      <li>Each file uses mode <code>0600</code> and is mounted read-only under <code>/run/secrets/</code>.</li>
+      <li>The relay entrypoint validates both values, generates an in-container SASL map with restrictive permissions, compiles it, and never prints its contents.</li>
+      <li>Revocation is performed in Postmark, followed by replacing the host files and recreating only the relay container.</li>
+    </ol>
+    <div class="callout warn"><div class="label">Credential boundary</div><p>Secrets must not appear in environment variables, Compose YAML, image layers, shell history, test fixtures, logs, screenshots or Git.</p></div>
+
+    <h2>Failure behavior</h2>
+    <table>
+      <thead><tr><th>Condition</th><th>Expected behavior</th><th>Operator signal</th></tr></thead>
+      <tbody>
+        <tr><td>Postmark or Internet temporarily unavailable</td><td>Postfix accepts the message locally, retains it in the persistent queue and retries.</td><td>Deferred queue entry and relay log.</td></tr>
+        <tr><td>Relay container unavailable</td><td>Django fails its SMTP connection within the configured timeout.</td><td>CVAT request error and server log.</td></tr>
+        <tr><td>Missing or empty secret</td><td>The relay refuses to start.</td><td>Clear startup error naming the missing file, never its value.</td></tr>
+        <tr><td>Revoked or invalid token</td><td>Postmark rejects authentication and the queued message remains deferred.</td><td>SASL authentication error in relay logs.</td></tr>
+        <tr><td>Postmark accepts, recipient later bounces</td><td>The local queue is complete; Postmark records the bounce and suppresses further invalid delivery.</td><td>Postmark Activity and bounce status.</td></tr>
+        <tr><td>Container or host restart</td><td>Pending queue data survives in the named volume and delivery resumes.</td><td>Queue state before and after restart.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Verification strategy</h2>
+    <h3>Automated checks</h3>
+    <ul>
+      <li>Test-first coverage for settings parsing, required values, sender identity, timeout and invitation message generation.</li>
+      <li>Entrypoint tests for absent and empty secrets before testing successful configuration rendering.</li>
+      <li>Static and resolved-Compose assertions: no published SMTP port, read-only secrets, named queue volume, dedicated network membership and no credential values.</li>
+      <li>Image build plus <code>postfix check</code> without contacting Postmark.</li>
+      <li>Regression tests demonstrating that omitting the overlay leaves default CVAT behavior unchanged.</li>
+    </ul>
+    <div class="callout info"><div class="label">Baseline environment note</div><p>The first host-side baseline invocation is blocked before collection because <code>pytest-cases</code> and <code>pytest-timeout</code> are absent; the host also has Django 4.2 while the running server image has Django 5.2.14. The implementation plan must select an isolated, version-matched test environment instead of mutating the host Python installation implicitly.</p></div>
+
+    <h3>Staged external checks</h3>
+    <ol>
+      <li>Resolve Postmark DNS and negotiate STARTTLS on port 587 without exposing authentication data.</li>
+      <li>Submit a harmless message to <code>test@blackhole.postmarkapp.com</code> and confirm Postmark Activity plus an empty local queue.</li>
+      <li>Send to a mailbox controlled by the operator and inspect headers for <code>spf=pass</code>, <code>dkim=pass</code> and <code>dmarc=pass</code>.</li>
+      <li>Recreate only <code>cvat_server</code> with the production email settings and confirm API health.</li>
+      <li>Resend or create a controlled organization invitation, verify its HTTPS link, accept it, and inspect CVAT and Postmark logs.</li>
+    </ol>
+
+    <h2>Deployment and rollback</h2>
+    <p>The tracked overlay is explicitly included in the production Compose command. It builds the relay image, attaches the dedicated network, mounts secrets, and switches only <code>cvat_server</code> to the production email settings module. Database, UI, workers and Nuclio functions are not recreated for this slice.</p>
+    <p>Rollback removes the email overlay from the Compose invocation and recreates <code>cvat_server</code>. The default settings return to <code>EMAIL_BACKEND = None</code>; queued relay data is retained until the operator explicitly decides whether to deliver or discard it.</p>
+    <div class="callout warn"><div class="label">Approval boundaries</div><p>Writing and verification do not authorize commit, merge, push, production restart, live invitation delivery or queue deletion. Each remains a separate operator decision.</p></div>
+
+    <h2>Success criteria</h2>
+    <ul>
+      <li>CVAT no longer reports that no email backend is configured when the overlay is selected.</li>
+      <li>A real organization invitation reaches an external recipient and its acceptance link works.</li>
+      <li>SPF, DKIM and DMARC pass on the received message.</li>
+      <li>Temporary upstream failures queue rather than lose mail.</li>
+      <li>No SMTP port is published or bound on a host interface, and the relay is not reachable from the Internet.</li>
+      <li>The Postmark secret exists only in operator-controlled host storage and the running relay.</li>
+      <li>Omitting the overlay preserves upstream CVAT behavior.</li>
+    </ul>
+
+    <h2>Explicit non-goals</h2>
+    <ul>
+      <li>Inbound SMTP, local mailboxes, POP3 or IMAP.</li>
+      <li>Relay access for applications other than CVAT.</li>
+      <li>Newsletters, broadcasts or marketing email.</li>
+      <li>Mandatory account verification or changed invitation semantics.</li>
+      <li>Replacing Postmark's bounce, suppression or DMARC-reporting facilities.</li>
+    </ul>
+
+    <h2>Next review gate</h2>
+    <ol>
+      <li>Review this specification for architectural or operational changes.</li>
+      <li>After approval, write the agent-consumable Markdown implementation plan with exact files, tests and commands.</li>
+      <li>Select or construct a version-matched isolated test environment.</li>
+      <li>Execute the plan test-first in the isolated feature worktree.</li>
+    </ol>
+  </main>
+</div>
+<footer>Generated by Codex · plan-as-html · 2026-09-02</footer>
+<div class="toast" id="toast">Copied to clipboard</div>
+<script type="text/plain" id="prompt-seed">
+Re: the design doc "CVAT-Only Postmark Relay Design" for a private queue-backed CVAT to Postmark path.
+I've read it. I want to change the following:
+-
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.12.0/mermaid.min.js" integrity="sha512-5TKaYvhenABhlGIKSxAWLFJBZCSQw7HTV7aL1dJcBokM/+3PNtfgJFlv8E6Us/B1VMlQ4u8sPzjudL9TEQ06ww==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:matchMedia("(prefers-color-scheme: dark)").matches?"dark":"default"});</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha512-D9gUyxqja7hBtkWpPWGt9wfbfaMGVt9gnyCvYa+jojwwPHLCzUm5i8rpk7vD7wNee9bA35eYIjobYPaQuKS1MQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>hljs.highlightAll();</script>
+<script>
+  (function(){
+    const content=document.querySelector(".content"),list=document.getElementById("toc-list"),heads=content.querySelectorAll("h2, h3");
+    const slug=(t)=>t.toLowerCase().trim().replace(/[^\w\s-]/g,"").replace(/\s+/g,"-").slice(0,60),seen={};
+    heads.forEach((h)=>{let id=h.id||slug(h.textContent);if(seen[id])id=id+"-"+(++seen[id]);else seen[id]=1;h.id=id;const a=document.createElement("a");a.href="#"+id;a.textContent=h.textContent;a.className=h.tagName==="H3"?"h3":"";list.appendChild(a);});
+    const links=Array.from(list.querySelectorAll("a")),byId=Object.fromEntries(links.map((a)=>[a.getAttribute("href").slice(1),a]));
+    const obs=new IntersectionObserver((entries)=>{entries.forEach((e)=>{if(e.isIntersecting){links.forEach((l)=>l.classList.remove("active"));(byId[e.target.id]||{}).classList?.add("active");}});},{rootMargin:"-72px 0px -70% 0px"});
+    heads.forEach((h)=>obs.observe(h));
+    async function copyText(value){try{await navigator.clipboard.writeText(value);return true;}catch(_){const ta=document.createElement("textarea");ta.value=value;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand("copy");}catch(e){}document.body.removeChild(ta);return ok;}}
+    const toast=document.getElementById("toast");document.getElementById("copyPromptBtn").addEventListener("click",async()=>{const seed=(document.getElementById("prompt-seed").textContent||"").trim(),ok=await copyText(seed);toast.textContent=ok?"Copied — paste it back to Codex to revise":"Copy failed — select the text manually";toast.classList.add("show");setTimeout(()=>toast.classList.remove("show"),2200);});
+  })();
+</script>
+</body>
+</html>
