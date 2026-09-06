@@ -1,0 +1,55 @@
+metadata:
+  name: pth-rfdetr-argus-outdoor-v1
+  namespace: nuclio
+  labels:
+    nuclio.io/project-name: cvat
+  annotations:
+    name: Argus Outdoor v1
+    version: '2'
+    type: detector
+    framework: pytorch
+    spec: |
+      [
+        {"id": 0, "name": "crack", "type": "mask"},
+        {"id": 1, "name": "crack_map", "type": "mask"},
+        {"id": 2, "name": "spall", "type": "mask"},
+        {"id": 3, "name": "exposed_rebar", "type": "mask"},
+        {"id": 4, "name": "efflorescence", "type": "mask"},
+        {"id": 5, "name": "concrete_water_marks", "type": "mask"}
+      ]
+spec:
+  description: Six-class Argus instance segmentation on a frame or CVAT region of interest
+  runtime: python:3.11
+  handler: main:handler
+  image: cvat.rfdetr.argus.outdoor.v1:single-pass-20260903
+  eventTimeout: 60s
+  readinessTimeoutSeconds: 300
+  env:
+    - name: CHECKPOINT_PATH
+      value: /opt/models/epoch=074-map=0.1016.ckpt
+  volumes:
+    - volume:
+        name: argus-checkpoint
+        hostPath:
+          path: /data/cvat/data/models/argus-outdoor-v1
+      volumeMount:
+        name: argus-checkpoint
+        mountPath: /opt/models
+        readOnly: true
+  triggers:
+    myHttpTrigger:
+      kind: http
+      numWorkers: 1
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  platform:
+    attributes:
+      network: cvat_cvat
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume

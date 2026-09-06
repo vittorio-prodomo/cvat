@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<!--
+  plan-as-html template scaffold.
+  HOW TO USE:
+    1. Replace Argus detector for CVAT, {{SUBTITLE}}, 2026-09-03, {{META}} and the #prompt-seed block.
+    2. Replace everything inside <main class="content"> with your real content.
+    3. Keep the components you need (callout / option-grid / mermaid / details / code);
+       delete the rest. The example blocks below show each one in use.
+    4. The table of contents auto-builds from <h2>/<h3> inside .content — just write headings.
+    5. Save to docs/plans/<YYYY-MM-DD>-<slug>.html in the project.
+  This is ONE self-contained file. CSS + JS are inline; Mermaid + highlight.js load from CDN
+  (pinned with SRI integrity hashes — if you bump a version, update the integrity= hash too,
+  or the browser will refuse to load the resource).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Argus detector for CVAT</title>
+
+<!-- highlight.js theme (light + dark) — pinned with SRI integrity hashes -->
+
+
+
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --surface: #ffffff;
+    --text: #1f2328;
+    --muted: #656d76;
+    --border: #e3e6ea;
+    --accent: #4f46e5;
+    --accent-soft: #eef0fe;
+    --code-bg: #f5f6f8;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.04);
+    --maxw: 820px;
+    --radius: 12px;
+    --info: #2563eb;   --info-bg: #eef4ff;
+    --warn: #b45309;   --warn-bg: #fff7ed;
+    --ok:   #047857;   --ok-bg:   #ecfdf5;
+    --bad:  #b91c1c;   --bad-bg:  #fef2f2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --surface: #161922; --text: #e6e8eb; --muted: #9aa4b2;
+      --border: #262b36; --accent: #8b89ff; --accent-soft: #1e2030; --code-bg: #1b1f29;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 20px rgba(0,0,0,.3);
+      --info-bg:#13213b; --warn-bg:#2a1f12; --ok-bg:#0e231c; --bad-bg:#2a1416;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; background: color-mix(in srgb, var(--bg) 85%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  }
+  .topbar .title { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+  .topbar .spacer { flex: 1; }
+  .action {
+    font: inherit; font-size: 13px; font-weight: 550; cursor: pointer;
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); transition: .15s;
+  }
+  .action:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Layout: sidebar TOC + content */
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px; max-width: 1140px; margin: 0 auto; padding: 40px 24px 96px; }
+  .toc { position: sticky; top: 76px; align-self: start; font-size: 13.5px; max-height: calc(100vh - 100px); overflow: auto; }
+  .toc-title { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--muted); margin: 0 0 10px 4px; }
+  .toc a { display: block; color: var(--muted); text-decoration: none; padding: 4px 10px; border-radius: 7px; border-left: 2px solid transparent; line-height: 1.4; }
+  .toc a:hover { color: var(--text); background: var(--accent-soft); }
+  .toc a.h3 { padding-left: 22px; font-size: 12.5px; }
+  .toc a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+
+  .content { min-width: 0; }
+  .content > *:first-child { margin-top: 0; }
+  h1 { font-size: 30px; line-height: 1.2; letter-spacing: -.02em; margin: 0 0 6px; }
+  .doc-sub { color: var(--muted); font-size: 16px; margin: 0 0 4px; }
+  .doc-meta { color: var(--muted); font-size: 13px; margin: 0 0 28px; }
+  h2 { font-size: 22px; letter-spacing: -.01em; margin: 44px 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); scroll-margin-top: 76px; }
+  h3 { font-size: 17px; margin: 28px 0 10px; scroll-margin-top: 76px; }
+  p, li { color: var(--text); }
+  a { color: var(--accent); }
+  code { background: var(--code-bg); padding: .15em .4em; border-radius: 5px; font-size: .88em; font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; overflow: auto; }
+  pre code { background: none; padding: 0; font-size: 13px; line-height: 1.5; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--accent-soft); font-weight: 600; }
+
+  /* Callouts */
+  .callout { border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 12px 16px; margin: 18px 0; background: var(--surface); }
+  .callout .label { font-weight: 650; font-size: 13px; margin-bottom: 2px; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.info { border-left-color: var(--info); background: var(--info-bg); } .callout.info .label { color: var(--info); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); } .callout.warn .label { color: var(--warn); }
+  .callout.ok   { border-left-color: var(--ok);   background: var(--ok-bg);   } .callout.ok .label   { color: var(--ok); }
+  .callout.bad  { border-left-color: var(--bad);  background: var(--bad-bg);  } .callout.bad .label  { color: var(--bad); }
+
+  /* Option grid — the key "compare N approaches" component */
+  .option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 20px 0; }
+  .option-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; background: var(--surface); box-shadow: var(--shadow); }
+  .option-card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .option-card h4 { margin: 0 0 4px; font-size: 16px; }
+  .option-card .tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; margin-bottom: 10px; }
+  .option-card ul { margin: 8px 0 0; padding-left: 18px; font-size: 14px; }
+  .option-card .pro::marker { content: "✓ "; } .option-card .pro { color: var(--ok); }
+  .option-card .con::marker { content: "✗ "; } .option-card .con { color: var(--bad); }
+  .option-card .pro span, .option-card .con span { color: var(--text); }
+
+  details { border: 1px solid var(--border); border-radius: 10px; padding: 0 16px; margin: 16px 0; background: var(--surface); }
+  details[open] { padding-bottom: 8px; }
+  summary { cursor: pointer; font-weight: 600; padding: 12px 0; list-style-position: inside; }
+  summary:hover { color: var(--accent); }
+
+  .mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin: 18px 0; text-align: center; }
+
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 550; opacity: 0; pointer-events: none; transition: .25s; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer { max-width: 1140px; margin: 0 auto; padding: 24px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); }
+
+  /* Responsive: drop the sidebar, show a collapsible TOC up top */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 0; }
+    .toc { position: static; max-height: none; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  }
+  /* Print */
+  @media print {
+    .topbar, .toc, .action, .toast { display: none !important; }
+    .layout { display: block; padding: 0; max-width: none; }
+    .option-card, .callout, pre, .mermaid, details { box-shadow: none; break-inside: avoid; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="title">Argus detector for CVAT</span>
+  <span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+
+<div class="layout">
+  <!-- TOC auto-populates from headings; on mobile it becomes this collapsible box -->
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-title">On this page</div>
+    <div id="toc-list"></div>
+  </nav>
+
+<main class="content"><h1>Argus detector for CVAT</h1><p class="doc-sub">Approved first delivery · 3 September 2026</p>
+<p>Deploy the six-class Argus RF-DETR model as a normal CVAT detector. Run it on a complete frame or draw a native region of interest. Each invocation performs one inference pass. Sliced inference is deferred.</p>
+<h2>Annotation workflow</h2><ol><li>Open AI Tools → Detectors and select Argus Outdoor v1.</li><li>Map its six output classes to task labels and choose a confidence threshold.</li><li>Run on the frame, or enable the detector region of interest and draw a rectangle.</li><li>Review the returned instance masks. CVAT places ROI predictions back in frame coordinates.</li></ol>
+<h2>Model and runtime</h2><table><tr><th>Item</th><th>Choice</th></tr><tr><td>Run</td><td>rfdetr-argus-outdoor-v1-ext-lr1e6</td></tr><tr><td>Checkpoint</td><td>epoch=074-map=0.1016.ckpt, pinned by SHA256</td></tr><tr><td>Classes</td><td>crack, crack_map, spall, exposed_rebar, efflorescence, concrete_water_marks</td></tr><tr><td>Input</td><td>504 × 504; aspect ratio preserved with centered black padding</td></tr><tr><td>Masks</td><td>Decode at full input resolution; preserve holes and disconnected components</td></tr><tr><td>Serving</td><td>Pinned bridge RF-DETR and training-toolkit code, PyTorch 2.8, one GPU worker</td></tr></table>
+<h2>Scope and practical limits</h2><p>The new Nuclio function uses the existing detector interface, label mapping, threshold control and native ROI support. A large full image is resized to 504 pixels on its longest side; small defects can benefit from a tighter ROI. There is no automatic tiling in this delivery.</p>
+<h2>Verification and release</h2><p>The Argus function is deployed and healthy following explicit deployment approval. All 105 Argus tests pass in the bridge environment; the shared RF-DETR suite passes 253 tests with one optional dependency skip. Real GPU checks match the bridge reference exactly for masks and transformed inputs on a full 5280 × 3956 photo and a 1024 × 801 crop. A temporary Nuclio processor is healthy, and the actual CVAT adapter correctly maps labels, converts dense masks to RLE, and translates ROI coordinates with zero database queries or annotation writes.</p><p>Deployed image: <code>cvat.rfdetr.argus.outdoor.v1:single-pass-20260903</code>. Live CVAT gateway checks passed for full-image and ROI inference, label mapping and mask placement. All 24 existing containers remained unchanged. These checks used a fixture image and in-memory task metadata; an authenticated browser annotation smoke test was not performed. Sliced inference remains deferred.</p><details><summary>Reproducibility</summary><p>The checkpoint and both source repositories are pinned. Runtime source is bundled from Git rather than mounted from the active training checkout. Only the copied checkpoint is mounted read-only. The function fails startup on a checkpoint hash or architecture mismatch.</p></details></main>
+</div>
+
+<footer>Generated by Codex · plan-as-html · 2026-09-03</footer>
+
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<!-- Re-prompt seed: fill with a 1–3 line summary + an edit stub. Powers "Copy as prompt". -->
+<script type="text/plain" id="prompt-seed">
+Re: the design doc "Argus detector for CVAT" (single-pass six-class detection with native ROI).
+I've read it. I want to change the following:
+-
+</script>
+
+<!-- Mermaid (diagrams) — UMD build pinned with SRI -->
+
+
+
+<!-- Syntax highlighting — pinned with SRI -->
+
+
+
+<!-- TOC build, scroll-spy, copy-as-prompt -->
+<script>
+  (function () {
+    // Build the table of contents from h2/h3 in .content
+    const content = document.querySelector(".content");
+    const list = document.getElementById("toc-list");
+    const heads = content.querySelectorAll("h2, h3");
+    const slug = (t) => t.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-").slice(0, 60);
+    const seen = {};
+    heads.forEach((h) => {
+      let id = h.id || slug(h.textContent);
+      if (seen[id]) id = id + "-" + (++seen[id]); else seen[id] = 1;
+      h.id = id;
+      const a = document.createElement("a");
+      a.href = "#" + id; a.textContent = h.textContent;
+      a.className = h.tagName === "H3" ? "h3" : "";
+      list.appendChild(a);
+    });
+
+    // Scroll-spy: highlight the current section in the TOC
+    const links = Array.from(list.querySelectorAll("a"));
+    const byId = Object.fromEntries(links.map((a) => [a.getAttribute("href").slice(1), a]));
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          links.forEach((l) => l.classList.remove("active"));
+          (byId[e.target.id] || {}).classList?.add("active");
+        }
+      });
+    }, { rootMargin: "-72px 0px -70% 0px" });
+    heads.forEach((h) => obs.observe(h));
+
+    // Copy as prompt (with file:// fallback)
+    async function copyText(text) {
+      try { await navigator.clipboard.writeText(text); return true; }
+      catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta); return ok;
+      }
+    }
+    const toast = document.getElementById("toast");
+    document.getElementById("copyPromptBtn").addEventListener("click", async () => {
+      const seed = (document.getElementById("prompt-seed").textContent || "").trim();
+      const ok = await copyText(seed);
+      toast.textContent = ok ? "Copied — paste it back to Codex to revise" : "Copy failed — select the text manually";
+      toast.classList.add("show"); setTimeout(() => toast.classList.remove("show"), 2200);
+    });
+  })();
+</script>
+</body>
+</html>
