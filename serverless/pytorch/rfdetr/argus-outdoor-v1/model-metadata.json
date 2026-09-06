@@ -1,0 +1,21 @@
+{
+  "run": "rfdetr-argus-outdoor-v1-ext-lr1e6",
+  "checkpoint": "epoch=074-map=0.1016.ckpt",
+  "checkpoint_sha256": "bb57ce7417e8bab675910d5278057ba456389a3683764248f77c5533fb1cbb8d",
+  "training_config_sha256": "c12b9ff1c78bc9b4be56fba3d34994b89c931cd28af0eb30619bf8322b2a19ba",
+  "architecture": "rf-detr-seg-large",
+  "input_size": 504,
+  "mask_downsample_ratio": 2,
+  "classes": ["crack", "crack_map", "spall", "exposed_rebar", "efflorescence", "concrete_water_marks"],
+  "source_commits": {
+    "training-toolkit": "8e5b3232e1aa4e63bebeb771ace948f93c69242b",
+    "rf-detr": "27eceb15ff74a4f5be0d5e7c860e5760497cd5fb"
+  },
+  "inference": {
+    "default_threshold": 0.2,
+    "class_aware_mask_nms_iou": 0.7,
+    "max_detections": 100,
+    "mask_decoding": "full input resolution",
+    "sliced": false
+  }
+}
