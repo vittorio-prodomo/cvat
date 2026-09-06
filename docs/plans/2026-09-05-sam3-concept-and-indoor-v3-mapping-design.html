@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT AI Tools: SAM3 Concept Mode and Indoor v3 Mapping</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --surface: #fff; --text: #20242c; --muted: #667085;
+    --border: #dde2ea; --accent: #2563eb; --soft: #edf4ff;
+    --ok: #08775f; --ok-bg: #eafaf5; --warn: #a15c00; --warn-bg: #fff6e8;
+    --shadow: 0 8px 28px rgba(27, 39, 64, .08); --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1218; --surface: #171b24; --text: #e8ebf0; --muted: #a2abba;
+      --border: #2a3140; --accent: #85a8ff; --soft: #172640;
+      --ok: #72d7bd; --ok-bg: #102821; --warn: #f4bd73; --warn-bg: #2b2113;
+      --shadow: 0 8px 28px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 10; display: flex; align-items: center;
+    gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px);
+  }
+  .topbar strong { font-size: 14px; }
+  .topbar .spacer { flex: 1; }
+  button {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  .layout {
+    display: grid; grid-template-columns: 230px minmax(0, 840px); gap: 42px;
+    justify-content: center; padding: 42px 24px 90px;
+  }
+  nav { position: sticky; top: 82px; align-self: start; }
+  nav .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+  nav a { display: block; color: var(--muted); text-decoration: none; padding: 5px 8px; border-radius: 7px; font-size: 13px; }
+  nav a:hover { background: var(--soft); color: var(--accent); }
+  main { min-width: 0; }
+  h1 { margin: 0; font-size: 34px; line-height: 1.15; letter-spacing: -.03em; }
+  .subtitle { color: var(--muted); margin: 8px 0 2px; font-size: 17px; }
+  .meta { color: var(--muted); margin: 0 0 30px; font-size: 13px; }
+  h2 { margin: 44px 0 14px; padding-bottom: 7px; border-bottom: 1px solid var(--border); font-size: 23px; }
+  h3 { margin: 28px 0 10px; font-size: 17px; }
+  code { background: var(--soft); border-radius: 5px; padding: .12em .36em; }
+  .callout { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 11px; padding: 13px 16px; background: var(--soft); margin: 18px 0; }
+  .callout.ok { border-left-color: var(--ok); background: var(--ok-bg); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .callout b { display: block; margin-bottom: 3px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 16px; margin: 18px 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+  .card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .tag { display: inline-block; color: var(--accent); background: var(--soft); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+  .card h3 { margin: 8px 0 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 9px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0; }
+  .step { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 10px 13px; box-shadow: var(--shadow); }
+  .arrow { color: var(--muted); }
+  details { border: 1px solid var(--border); background: var(--surface); border-radius: 10px; padding: 0 15px; margin: 14px 0; }
+  details[open] { padding-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 650; padding: 12px 0; }
+  footer { border-top: 1px solid var(--border); color: var(--muted); padding: 22px; text-align: center; font-size: 12px; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 15px); opacity: 0; background: var(--text); color: var(--bg); border-radius: 999px; padding: 9px 15px; transition: .2s; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (max-width: 850px) { .layout { grid-template-columns: 1fr; } nav { position: static; } }
+  @media print { .topbar, nav, .toast { display: none; } .layout { display: block; padding: 0; } .card { box-shadow: none; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <strong>CVAT AI Tools design</strong><span class="spacer"></span>
+  <button id="copyPrompt" type="button">Copy as prompt</button>
+  <button onclick="window.print()" type="button">Print / PDF</button>
+</header>
+<div class="layout">
+  <nav aria-label="Table of contents"><div class="label">On this page</div><div id="toc"></div></nav>
+  <main>
+    <h1>SAM3 Concept Mode and Indoor v3 Mapping</h1>
+    <p class="subtitle">Two independently testable improvements to CVAT’s AI Tools workflow</p>
+    <p class="meta">2026-09-05 · Approved design · CVAT fork at /data/cvat</p>
+
+    <h2>Executive summary</h2>
+    <p>The next AI Tools batch adds a concept-search mode to SAM3 and improves default label mapping for Indoor v3. SAM3 will support text alone, a positive exemplar box alone, or both together to find similar objects throughout the submitted image. Indoor v3 will retain its model-native class names while CVAT safely auto-matches unique code prefixes such as <code>C5</code> to <code>C5_infiltr_cls</code>; Project 40 will receive a generic <code>crack</code> label.</p>
+    <div class="callout ok"><b>Approved scope</b>The two slices share a UI build but remain separate in code, tests, runtime changes, and rollback evidence. Indoor v3 itself does not need a new model image or Nuclio deployment.</div>
+
+    <h2>Slice A: SAM3 concept and exemplar prompting</h2>
+    <h3>User experience</h3>
+    <p>The SAM3 panel presents two explicit modes. <strong>Single object</strong> remains the default and preserves the existing points/box workflow. <strong>Find similar objects</strong> uses SAM3’s promptable concept segmentation path and returns multiple candidate masks.</p>
+    <table>
+      <thead><tr><th>Mode</th><th>Accepted prompts</th><th>Expected result</th></tr></thead>
+      <tbody>
+        <tr><td>Single object</td><td>Positive/negative points and optional starting box</td><td>One mask for the indicated instance</td></tr>
+        <tr><td>Find similar objects</td><td>Freeform text, one positive exemplar box, or both</td><td>Every matching instance above the confidence filter</td></tr>
+      </tbody>
+    </table>
+    <p>Freeform text remains primary because project labels may be opaque codes such as <code>C2</code>. A “Use label name” shortcut copies the selected CVAT label into the field, after which it remains editable. The exemplar box is optional so the existing text-only workflow remains available.</p>
+    <div class="callout warn"><b>Exemplar box versus region of interest</b>The exemplar says “find objects like this” and does not crop the search. If a CVAT region of interest is also active, CVAT submits only that crop and concept search is necessarily limited to it.</div>
+
+    <h3>Request and model flow</h3>
+    <div class="flow">
+      <span class="step">Select concept mode</span><span class="arrow">→</span>
+      <span class="step">Enter text and/or draw exemplar</span><span class="arrow">→</span>
+      <span class="step">Normalize exemplar box</span><span class="arrow">→</span>
+      <span class="step">SAM3 concept grounding</span><span class="arrow">→</span>
+      <span class="step">Masks + confidence</span>
+    </div>
+    <p>The client sends an explicit prompt mode so a box-only concept request cannot be confused with single-object box segmentation. Requests without the new mode remain backward compatible: text keeps its current concept behavior and point/box requests keep their current single-object behavior.</p>
+    <p>The Nuclio handler uses the existing <code>Sam3Processor</code>. It sets the image, applies freeform text when present, converts the exemplar from CVAT pixel <code>xyxy</code> coordinates to SAM3 normalized <code>cxcywh</code>, adds it as a positive geometric exemplar, and serializes all masks and scores through the existing CVAT shape path. The implementation will use SAM3’s public processor operations rather than private model internals.</p>
+
+    <h3>Result review and refinement</h3>
+    <p>The existing minimum-confidence slider filters the multi-mask result set. Selecting an individual result continues to enable point refinement and real-time erosion/dilation for that one mask. Changing the concept prompt or exemplar starts a new result set and clears selection-specific refinement state.</p>
+
+    <h3>Options considered</h3>
+    <div class="grid">
+      <article class="card pick"><span class="tag">Recommended</span><h3>Explicit two-mode UI</h3><p>Maps directly to SAM3’s single-object and concept tasks, keeps the current default, and makes box semantics unambiguous.</p></article>
+      <article class="card"><h3>Extend the existing Text tab</h3><p>Smaller visual change, but leaves users to infer why the same box means a single object in one place and an exemplar in another.</p></article>
+      <article class="card"><h3>One adaptive prompt form</h3><p>Most compact, but mode changes would occur implicitly as fields are filled and make results harder to predict.</p></article>
+    </div>
+
+    <h3>Validation</h3>
+    <ul>
+      <li>Backend contract tests for text-only, exemplar-only, combined text/exemplar, malformed boxes, and legacy requests.</li>
+      <li>Deterministic adapter tests confirming coordinate conversion, positive exemplar labeling, complete result serialization, and confidence preservation.</li>
+      <li>Frontend tests covering mode transitions, Enter-key submission, ROI coordinate handling, state clearing, confidence filtering, and selected-mask refinement.</li>
+      <li>GPU smoke tests on a controlled image comparing text-only and text-plus-exemplar results, with no annotation writes.</li>
+    </ul>
+
+    <h2>Slice B: Indoor v3 mapping and Project 40</h2>
+    <h3>Automatic matching rule</h3>
+    <p>CVAT first retains its existing exact-name match. For an otherwise unmatched model label shaped exactly like <code>C&lt;digits&gt;</code>, it may match a compatible project label beginning with that same code followed by an underscore. The fallback is accepted only when exactly one candidate exists; ambiguity leaves the label unmapped for manual selection.</p>
+    <table>
+      <thead><tr><th>Indoor v3</th><th>Project 40 default</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>C1</td><td>C1_difet_esec</td><td>Unique code-prefix match</td></tr>
+        <tr><td>C5…C12</td><td>Corresponding C5_… through C12_…</td><td>Unique code-prefix match</td></tr>
+        <tr><td>crack</td><td>crack</td><td>Exact match after schema addition</td></tr>
+        <tr><td>C13</td><td>—</td><td>Intentionally unmapped</td></tr>
+        <tr><td>—</td><td>C2_effloresc</td><td>Intentionally unmapped</td></tr>
+      </tbody>
+    </table>
+    <p>The delimiter requirement prevents <code>C1</code> from matching <code>C10_…</code>. Type compatibility remains mandatory, and already-selected/manual mappings remain authoritative.</p>
+
+    <h3>Project 40 schema addition</h3>
+    <p>Add one project-level label named <code>crack</code> with type <code>any</code> and color <code>#e53935</code>, matching the existing C16–C19 crack family. It receives the same attributes as those labels:</p>
+    <ul>
+      <li>mutable select <code>confidence</code>, values <code>low</code>, <code>medium</code>, <code>high</code>, default <code>high</code>;</li>
+      <li>immutable text <code>model_confidence</code>, empty default.</li>
+    </ul>
+    <p>The project-level update makes the label available to all 32 tasks in Project 40. It does not alter existing shapes. Annotators can accept detector output as generic <code>crack</code> and then relabel each instance as C16, C17, C18, or C19.</p>
+
+    <h3>Options considered</h3>
+    <div class="grid">
+      <article class="card pick"><span class="tag">Recommended</span><h3>Safe UI prefix matching</h3><p>Preserves truthful model metadata, works across compatible projects, and requires no Indoor v3 redeployment.</p></article>
+      <article class="card"><h3>Rename the manifest labels</h3><p>Produces exact matches for Project 40 but couples the detector to one project schema and requires synchronized response-name and Nuclio changes.</p></article>
+      <article class="card"><h3>Add alias metadata</h3><p>Most explicit long-term contract, but introduces a new manifest extension and additional parser/UI plumbing for a convention that is already unambiguous.</p></article>
+    </div>
+
+    <h3>Validation and mutation safety</h3>
+    <ul>
+      <li>Unit tests for exact-match precedence, unique prefix matching, C1/C10 boundary safety, ambiguity, incompatible types, C2, and C13.</li>
+      <li>Browser verification that Indoor v3 opens with C1 and C5–C12 pre-mapped, <code>crack</code> exact-mapped, and C2/C13 visibly unmapped.</li>
+      <li>Project schema before/after receipts including label and attribute IDs.</li>
+      <li>Annotation counts checked before and after the schema update; expected annotation writes: zero.</li>
+    </ul>
+
+    <h2>Delivery boundaries</h2>
+    <table>
+      <thead><tr><th>Artifact</th><th>Required change</th><th>Deployment</th></tr></thead>
+      <tbody>
+        <tr><td>CVAT UI</td><td>SAM3 mode UI and safe prefix auto-mapping</td><td>Build and replace only <code>cvat_ui</code></td></tr>
+        <tr><td>SAM3 Nuclio function</td><td>Concept mode request routing and exemplar processing</td><td>Build, preserve rollback, replace only SAM3</td></tr>
+        <tr><td>Indoor v3 Nuclio function</td><td>None</td><td>No rebuild or redeployment</td></tr>
+        <tr><td>Project 40 schema</td><td>Add generic <code>crack</code> label and attributes</td><td>Validated API/serializer mutation with receipt</td></tr>
+      </tbody>
+    </table>
+    <p>Implementation, project-schema mutation, candidate builds, and production deployment remain separately reviewable stages. No commit, push, or merge is part of this design document.</p>
+
+    <details>
+      <summary>Current live facts used for this design</summary>
+      <ul>
+        <li>SAM3 is ready and exposes no fixed label specification.</li>
+        <li>Indoor v3 is ready and exposes C1, C5–C13, and crack.</li>
+        <li>Project 40 is “Indoor DOMUS Re-annotation,” has 32 tasks, and currently has no generic crack label.</li>
+        <li>Project 40’s existing non-tag labels already carry <code>model_confidence</code>.</li>
+      </ul>
+    </details>
+  </main>
+</div>
+<footer>CVAT design record · 2026-09-05</footer>
+<div class="toast" id="toast">Copied</div>
+<script type="text/plain" id="prompt-seed">Re: “SAM3 Concept Mode and Indoor v3 Mapping”. The design adds explicit SAM3 single-object/concept modes, safe C-code prefix matching, and Project 40’s generic crack label.
+I want to change:</script>
+<script>
+(() => {
+  const toc = document.getElementById('toc');
+  document.querySelectorAll('main h2, main h3').forEach((heading) => {
+    const id = heading.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    heading.id = id;
+    const link = document.createElement('a');
+    link.href = `#${id}`;
+    link.textContent = heading.textContent;
+    if (heading.tagName === 'H3') link.style.paddingLeft = '20px';
+    toc.appendChild(link);
+  });
+  document.getElementById('copyPrompt').addEventListener('click', async () => {
+    const text = document.getElementById('prompt-seed').textContent.trim();
+    try { await navigator.clipboard.writeText(text); }
+    catch (_) {
+      const area = document.createElement('textarea'); area.value = text;
+      document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+    }
+    const toast = document.getElementById('toast'); toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1800);
+  });
+})();
+</script>
+</body>
+</html>
