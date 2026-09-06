@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 
-INPUT_SIZE = 504
+INPUT_SIZE = 1008
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class LetterboxFrame:
 
 
 def letterbox(image: np.ndarray) -> tuple[np.ndarray, LetterboxFrame]:
-    """Match LongestMaxSize(504) + centered PadIfNeeded(fill=0) exactly."""
+    """Match LongestMaxSize(1008) + centered PadIfNeeded(fill=0) exactly."""
     height, width = image.shape[:2]
     scale = INPUT_SIZE / max(height, width)
     resized_height = max(1, round(height * scale))

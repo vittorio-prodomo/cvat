@@ -17,7 +17,7 @@ RUN python -m pip install --no-cache-dir -r /opt/nuclio/requirements.txt \
     && python -m pip check
 COPY vendor /opt/indoor/vendor/
 ENV PYTHONPATH=/opt/nuclio:/opt/indoor/vendor/rf-detr/src:/opt/indoor/vendor/training-toolkit/src \
-    CHECKPOINT_PATH=/opt/models/epoch=016-map=0.0749.ckpt \
+    CHECKPOINT_PATH=/opt/models/epoch=022-map=0.0805.ckpt \
     HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1 \
     NO_ALBUMENTATIONS_UPDATE=1 OMP_NUM_THREADS=4
 WORKDIR /opt/nuclio

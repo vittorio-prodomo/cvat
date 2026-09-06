@@ -12,7 +12,7 @@ def backend_runtime(load_indoor, monkeypatch):
     module = load_indoor("model_handler")
     torch = pytest.importorskip("torch")
     captured = {"outputs": {"pred_logits": torch.zeros((1, 1, 11)),
-                            "pred_masks": torch.zeros((1, 1, 252, 252))}}
+                            "pred_masks": torch.zeros((1, 1, 504, 504))}}
 
     class Model:
         def load_state_dict(self, state, *, strict):
@@ -48,7 +48,7 @@ def backend_runtime(load_indoor, monkeypatch):
             captured["image_sizes"] = image_sizes
             captured.setdefault("thresholds", []).append(self._val_conf_thres)
             return [{
-                "masks": torch.ones((1, 504, 504), dtype=torch.bool),
+                "masks": torch.ones((1, 1008, 1008), dtype=torch.bool),
                 "labels": torch.tensor([2]), "scores": torch.tensor([0.8]),
             }]
 
@@ -79,15 +79,15 @@ def test_backend_constructs_pinned_architecture_and_loads_all_weights_strictly(b
 def test_backend_supplies_rgb_float32_batch_and_uses_adapter_full_mask_postprocess(backend_runtime):
     module, torch, captured = backend_runtime
     backend = module.IndoorBackend(device="cpu")
-    image = np.empty((504, 504, 3), dtype=np.uint8)
+    image = np.empty((1008, 1008, 3), dtype=np.uint8)
     image[:] = [255, 128, 0]
     result = backend.predict(image, 0.65)
     tensor = captured["batch"]["images"]
-    assert tensor.shape == (1, 3, 504, 504)
+    assert tensor.shape == (1, 3, 1008, 1008)
     assert tensor.dtype == torch.float32
     torch.testing.assert_close(tensor[0, :, 0, 0], torch.tensor([1.0, 128 / 255, 0.0]))
     assert captured["batch"]["targets"] == []
-    assert captured["image_sizes"] == (504, 504)
+    assert captured["image_sizes"] == (1008, 1008)
     assert captured["thresholds"] == [0.65]
     assert backend._adapter._val_conf_thres == 0.2
     assert result["masks"].dtype == np.bool_
@@ -104,7 +104,7 @@ def test_inference_failure_is_propagated_and_restores_threshold(backend_runtime,
 
     monkeypatch.setattr(backend._adapter, "postprocess_for_inference", fail)
     with pytest.raises(RuntimeError, match="broken CUDA"):
-        backend.predict(np.zeros((504, 504, 3), dtype=np.uint8), 0.7)
+        backend.predict(np.zeros((1008, 1008, 3), dtype=np.uint8), 0.7)
     assert backend._adapter._val_conf_thres == 0.2
 
 
@@ -122,7 +122,7 @@ def test_concurrent_calls_keep_their_thresholds_isolated(backend_runtime, monkey
         return original(*args, **kwargs)
 
     monkeypatch.setattr(backend._adapter, "postprocess_for_inference", blocked_postprocess)
-    image = np.zeros((504, 504, 3), dtype=np.uint8)
+    image = np.zeros((1008, 1008, 3), dtype=np.uint8)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(backend.predict, image, 0.25)
         assert first_inside.wait(timeout=5)
@@ -149,7 +149,7 @@ def test_nonfinite_raw_model_output_fails_before_confidence_filter_can_hide_it(b
     backend = module.IndoorBackend(device="cpu")
     captured["outputs"][key].flatten()[0] = value
     with pytest.raises(ValueError, match="nonfinite|finite"):
-        backend.predict(np.zeros((504, 504, 3), dtype=np.uint8), 0.2)
+        backend.predict(np.zeros((1008, 1008, 3), dtype=np.uint8), 0.2)
     assert "thresholds" not in captured
     assert backend._adapter._val_conf_thres == 0.2
 
@@ -158,5 +158,5 @@ def test_direct_backend_call_also_rejects_nonfinite_threshold(backend_runtime):
     module, _, captured = backend_runtime
     backend = module.IndoorBackend(device="cpu")
     with pytest.raises(ValueError, match="threshold"):
-        backend.predict(np.zeros((504, 504, 3), dtype=np.uint8), float("nan"))
+        backend.predict(np.zeros((1008, 1008, 3), dtype=np.uint8), float("nan"))
     assert "batch" not in captured

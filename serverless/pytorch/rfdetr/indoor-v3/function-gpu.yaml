@@ -5,10 +5,10 @@ metadata:
     nuclio.io/project-name: cvat
   annotations:
     name: Indoor v3
-    version: '2'
+    version: '3'
     type: detector
     framework: pytorch
-    postprocessing_label_groups: '[["C5", "C6"]]'
+    postprocessing_label_groups: '[["C1", "C5", "C6", "C7"]]'
     spec: |
       [
         {
@@ -167,15 +167,15 @@ metadata:
         }
       ]
 spec:
-  description: Eleven-class indoor instance segmentation on a frame or CVAT region of interest
+  description: Eleven-class indoor instance segmentation at 1008 px on a frame or CVAT region of interest
   runtime: python:3.11
   handler: main:handler
-  image: cvat.rfdetr.indoor.v3:confidence-text-20260904
+  image: cvat.rfdetr.indoor.v3:1008-20260906
   eventTimeout: 60s
   readinessTimeoutSeconds: 300
   env:
     - name: CHECKPOINT_PATH
-      value: /opt/models/epoch=016-map=0.0749.ckpt
+      value: /opt/models/epoch=022-map=0.0805.ckpt
   volumes:
     - volume:
         name: indoor-checkpoint

@@ -12,7 +12,7 @@ import {
 test('preview and postprocessing defaults are independent', () => {
     assert.deepEqual(DEFAULT_DETECTOR_RUN_OPTIONS, {
         previewConfidence: true,
-        postprocessing: { method: 'nms', metric: 'ios', threshold: 0.7 },
+        postprocessing: { method: 'nms', metric: 'ios', threshold: 0.8 },
     });
     assert.equal(buildDetectorRequestThreshold(true, null), 0.1);
     assert.equal(buildDetectorRequestThreshold(false, null), null);

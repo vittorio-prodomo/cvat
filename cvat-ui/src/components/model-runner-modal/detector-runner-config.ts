@@ -15,7 +15,7 @@ export interface DetectorRunOptions {
 
 export const DEFAULT_DETECTOR_RUN_OPTIONS: DetectorRunOptions = Object.freeze({
     previewConfidence: true,
-    postprocessing: Object.freeze({ method: 'nms', metric: 'ios', threshold: 0.7 }),
+    postprocessing: Object.freeze({ method: 'nms', metric: 'ios', threshold: 0.8 }),
 });
 
 export function buildDetectorRequestThreshold(preview: boolean, explicit: number | null): number | null {

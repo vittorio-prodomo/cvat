@@ -23,38 +23,38 @@ class ArrayBackend:
 
 def test_model_handler_maps_eleven_raw_classes_and_restores_dense_masks(load_indoor):
     module = load_indoor("model_handler")
-    masks = np.zeros((11, 504, 504), dtype=bool)
+    masks = np.zeros((11, 1008, 1008), dtype=bool)
     for index in range(11):
         masks[index, index, index] = True
     backend = ArrayBackend(masks, np.arange(11), np.full(11, 0.9))
     model = module.ModelHandler(backend=backend)
-    shapes = model.handle(image=Image.new("RGB", (504, 503)), threshold=0.25)
+    shapes = model.handle(image=Image.new("RGB", (1008, 1007)), threshold=0.25)
     assert tuple(shape["label"] for shape in shapes) == CLASSES
     for index, shape in enumerate(shapes):
         assert shape == {
             "label": CLASSES[index], "type": "mask", "confidence": 0.9,
             "attributes": [{"name": "model_confidence", "value": "0.9"}], "mask": [1, index, index, index, index],
         }
-    assert backend.calls[0][0].shape == (504, 504, 3)
+    assert backend.calls[0][0].shape == (1008, 1008, 3)
     assert backend.calls[0][1] == 0.25
 
 
 def test_empty_prediction_and_masks_wholly_in_padding_have_no_annotations(load_indoor):
     module = load_indoor("model_handler")
-    backend = ArrayBackend(np.zeros((0, 504, 504), dtype=bool), np.array([], dtype=int), np.array([]))
+    backend = ArrayBackend(np.zeros((0, 1008, 1008), dtype=bool), np.array([], dtype=int), np.array([]))
     model = module.ModelHandler(backend=backend)
-    assert model.handle(image=Image.new("RGB", (504, 503))) == []
+    assert model.handle(image=Image.new("RGB", (1008, 1007))) == []
     backend.prediction = {
-        "masks": np.pad(np.ones((1, 1, 504), dtype=bool), ((0, 0), (503, 0), (0, 0))),
+        "masks": np.pad(np.ones((1, 1, 1008), dtype=bool), ((0, 0), (1007, 0), (0, 0))),
         "labels": np.array([0]), "scores": np.array([0.9]),
     }
-    assert model.handle(image=Image.new("RGB", (504, 503))) == []
+    assert model.handle(image=Image.new("RGB", (1008, 1007))) == []
 
 
 @pytest.mark.parametrize("label", [-1, 11, 0.5, np.nan, np.inf, True, "0"])
 def test_model_handler_rejects_invalid_class_ids(load_indoor, label):
     module = load_indoor("model_handler")
-    backend = ArrayBackend(np.ones((1, 504, 504), dtype=bool), np.array([label]), np.array([0.9]))
+    backend = ArrayBackend(np.ones((1, 1008, 1008), dtype=bool), np.array([label]), np.array([0.9]))
     with pytest.raises(ValueError, match="class"):
         module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (17, 11)))
 
@@ -62,20 +62,20 @@ def test_model_handler_rejects_invalid_class_ids(load_indoor, label):
 @pytest.mark.parametrize("score", [np.nan, np.inf, -np.inf, -0.1, 1.1])
 def test_model_handler_rejects_invalid_model_scores(load_indoor, score):
     module = load_indoor("model_handler")
-    backend = ArrayBackend(np.ones((1, 504, 504), dtype=bool), np.array([0]), np.array([score]))
+    backend = ArrayBackend(np.ones((1, 1008, 1008), dtype=bool), np.array([0]), np.array([score]))
     with pytest.raises(ValueError, match="score"):
         module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (17, 11)))
 
 
 @pytest.mark.parametrize("field,value", [
     ("masks", np.zeros((1, 252, 252), dtype=bool)),
-    ("masks", np.zeros((0, 504, 504), dtype=bool)),
+    ("masks", np.zeros((0, 1008, 1008), dtype=bool)),
     ("scores", np.array([[0.9]])),
     ("labels", np.array([0, 1])),
 ])
 def test_model_handler_rejects_inconsistent_prediction_dimensions(load_indoor, field, value):
     module = load_indoor("model_handler")
-    backend = ArrayBackend(np.ones((1, 504, 504), dtype=bool), np.array([0]), np.array([0.9]))
+    backend = ArrayBackend(np.ones((1, 1008, 1008), dtype=bool), np.array([0]), np.array([0.9]))
     backend.prediction[field] = value
     with pytest.raises(ValueError):
         module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (17, 11)))
@@ -83,7 +83,7 @@ def test_model_handler_rejects_inconsistent_prediction_dimensions(load_indoor, f
 
 def test_model_handler_rejects_undecoded_probability_masks(load_indoor):
     module = load_indoor("model_handler")
-    backend = ArrayBackend(np.full((1, 504, 504), 0.9), np.array([0]), np.array([0.9]))
+    backend = ArrayBackend(np.full((1, 1008, 1008), 0.9), np.array([0]), np.array([0.9]))
     with pytest.raises(ValueError, match="boolean"):
         module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (17, 11)))
 
@@ -137,11 +137,11 @@ def test_checkpoint_missing_or_empty_model_state_fails(load_indoor, tmp_path, mo
 def test_each_mask_preserves_its_own_confidence_as_round_trip_text(load_indoor, dtype):
     module = load_indoor("model_handler")
     scores = np.array([0.0, 0.12345678912345678, 0.923471, 1.0], dtype=dtype)
-    masks = np.zeros((len(scores), 504, 504), dtype=bool)
+    masks = np.zeros((len(scores), 1008, 1008), dtype=bool)
     for index in range(len(scores)):
         masks[index, index, index] = True
     backend = ArrayBackend(masks, np.arange(len(scores)), scores)
-    shapes = module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (504, 504)), threshold=0)
+    shapes = module.ModelHandler(backend=backend).handle(image=Image.new("RGB", (1008, 1008)), threshold=0)
     assert len(shapes) == len(scores)
     for shape, score in zip(shapes, scores):
         attributes = {attr["name"]: attr["value"] for attr in shape["attributes"]}

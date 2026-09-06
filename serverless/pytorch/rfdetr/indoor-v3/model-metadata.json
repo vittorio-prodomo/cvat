@@ -1,10 +1,10 @@
 {
-  "run": "rfdetr-indoor-domus-v3",
-  "checkpoint": "epoch=016-map=0.0749.ckpt",
-  "checkpoint_sha256": "d16cd64e8b91d62a13caab4f53453692be74259a72b03d3445d3aff7a9e13a39",
-  "training_config_sha256": "3c9736aa00a9ce8916ada395e68cd7b236f79a1fe760fe3a70a03d6c75f753f9",
+  "run": "rfdetr-indoor-domus-v3-1008",
+  "checkpoint": "epoch=022-map=0.0805.ckpt",
+  "checkpoint_sha256": "17da6b5e29a877a4ffb6881a6ac44f99b1f2515882265d19f22a594239dfc385",
+  "training_config_sha256": "e3e31ca72d0990b2e349571eb99bae5e298929e298bc7f27cce17dbbed8ecd1c",
   "architecture": "rf-detr-seg-large",
-  "input_size": 504,
+  "input_size": 1008,
   "mask_downsample_ratio": 2,
   "classes": [
     "C1",

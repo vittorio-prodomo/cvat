@@ -16,8 +16,8 @@ CLASS_NAMES = (
     "C1", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "C13", "crack"
 )
 DEFAULT_THRESHOLD = 0.2
-CHECKPOINT_SHA256 = "d16cd64e8b91d62a13caab4f53453692be74259a72b03d3445d3aff7a9e13a39"
-DEFAULT_CHECKPOINT_PATH = "/opt/models/epoch=016-map=0.0749.ckpt"
+CHECKPOINT_SHA256 = "17da6b5e29a877a4ffb6881a6ac44f99b1f2515882265d19f22a594239dfc385"
+DEFAULT_CHECKPOINT_PATH = "/opt/models/epoch=022-map=0.0805.ckpt"
 
 
 def validate_threshold(value) -> float:
@@ -75,7 +75,7 @@ class IndoorBackend:
             num_classes=len(CLASS_NAMES),
             extra={
                 "mask_downsample_ratio": 2,
-                # Annotation policy: decode at full 504, not native low-res eval.
+                # Annotation policy: decode at full 1008, not native low-res eval.
                 "val_mask_downsample": 1,
                 "val_conf_thres": DEFAULT_THRESHOLD,
                 "val_nms_iou": 0.7,
