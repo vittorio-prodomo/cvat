@@ -61,7 +61,7 @@ export class InteractionHandlerImpl implements InteractionHandler {
     private pointPrompts: SVG.Circle[];
     private allPrompts: SupportedShapes[];
     private deletionButtons: Map<SupportedShapes, SVG.G>;
-    private intermediateShapes: (SVG.Image | SVG.Polygon)[];
+    private intermediateShapes: SVG.Shape[];
     private intermediateMaskOutlines: SVG.Polygon[];
     private selectionShapes: InteractionData['payload']['shapes'];
     private onInteraction: (interactionResult: InteractionResult[], finished?: boolean, selectedShape?: number) => void;
@@ -287,24 +287,53 @@ export class InteractionHandlerImpl implements InteractionHandler {
 
         for (const shape of shapes) {
             const {
-                points, shapeType, maskOutlines, selected,
+                points, shapeType, maskOutlines, selected, rotation,
             } = shape;
             const color = selected ? '#1890ff' : '#000000';
-            if (shapeType === 'polygon') {
+            const registerShape = (element: SVG.Shape, filled: boolean): void => {
+                element.attr({
+                    'color-rendering': 'optimizeQuality',
+                    'shape-rendering': 'geometricprecision',
+                    'stroke-width': consts.BASE_STROKE_WIDTH / this.geometry.scale,
+                    stroke: color,
+                    'pointer-events': 'none',
+                });
+                if (filled) {
+                    element.fill({ opacity: this.effectiveShapeOpacity, color: 'white' });
+                } else {
+                    element.fill('none');
+                }
+                element.addClass('cvat_canvas_interact_intermediate_shape');
+                this.container.node.prepend(element.node);
+                this.intermediateShapes.push(element);
+            };
+
+            if (shapeType === 'rectangle') {
+                const [xtl, ytl, xbr, ybr] = Array.from(points);
+                const rectangle = this.container.rect(xbr - xtl, ybr - ytl).move(
+                    this.geometry.offset + xtl, this.geometry.offset + ytl,
+                );
+                rectangle.rotate(
+                    rotation ?? 0,
+                    this.geometry.offset + (xtl + xbr) / 2,
+                    this.geometry.offset + (ytl + ybr) / 2,
+                );
+                registerShape(rectangle, true);
+            } else if (shapeType === 'ellipse') {
+                const [cx, cy, rightX, topY] = Array.from(points);
+                const ellipse = this.container.ellipse(2 * (rightX - cx), 2 * (cy - topY)).center(
+                    this.geometry.offset + cx, this.geometry.offset + cy,
+                );
+                ellipse.rotate(rotation ?? 0, this.geometry.offset + cx, this.geometry.offset + cy);
+                registerShape(ellipse, true);
+            } else if (shapeType === 'polygon') {
                 const isInvalidShape = points.length < 3 * 2;
                 const polygon = this.container
-                    .polygon(stringifyPoints(translateToCanvas(this.geometry.offset, points)))
-                    .attr({
-                        'color-rendering': 'optimizeQuality',
-                        'shape-rendering': 'geometricprecision',
-                        'stroke-width': consts.BASE_STROKE_WIDTH / this.geometry.scale,
-                        stroke: isInvalidShape ? 'red' : color,
-                        'pointer-events': 'none',
-                    })
-                    .fill({ opacity: this.effectiveShapeOpacity, color: 'white' })
-                    .addClass('cvat_canvas_interact_intermediate_shape');
-                this.container.node.prepend(polygon.node);
-                this.intermediateShapes.push(polygon);
+                    .polygon(stringifyPoints(translateToCanvas(this.geometry.offset, points)));
+                registerShape(polygon, true);
+                if (isInvalidShape) {
+                    polygon.stroke('red');
+                }
             } else if (shapeType === 'mask') {
                 const left = points[points.length - 4];
                 const top = points[points.length - 3];
@@ -312,15 +341,9 @@ export class InteractionHandlerImpl implements InteractionHandler {
                 const bottom = points[points.length - 1];
                 const imageBitmap = selected ? RLEToImageData(24, 144, 255, points) :
                     RLEToImageData(255, 255, 255, points);
-                const image = this.container.image().attr({
-                    'color-rendering': 'optimizeQuality',
-                    'shape-rendering': 'geometricprecision',
-                    'pointer-events': 'none',
-                    opacity: 0.5,
-                }).addClass('cvat_canvas_interact_intermediate_shape');
+                const image = this.container.image().attr({ opacity: 0.5 });
                 image.move(this.geometry.offset + left, this.geometry.offset + top);
-                this.container.node.prepend(image.node);
-                this.intermediateShapes.push(image);
+                registerShape(image, true);
 
                 let insertionPoint = image.node;
                 for (const outline of maskOutlines ?? []) {
@@ -356,6 +379,16 @@ export class InteractionHandlerImpl implements InteractionHandler {
                         }
                     },
                 );
+            } else if (shapeType === 'polyline') {
+                registerShape(this.container.polyline(
+                    stringifyPoints(translateToCanvas(this.geometry.offset, points)),
+                ), false);
+            } else if (shapeType === 'points') {
+                for (let index = 0; index < points.length; index += 2) {
+                    registerShape(this.container.circle(this.effectivePointSize * 2).center(
+                        this.geometry.offset + points[index], this.geometry.offset + points[index + 1],
+                    ), true);
+                }
             }
         }
     }
@@ -563,6 +596,8 @@ export class InteractionHandlerImpl implements InteractionHandler {
     };
 
     public transform(geometry: Geometry): void {
+        const { offset: previousOffset } = this.geometry;
+        const { selectionShapes } = this;
         this.geometry = geometry;
         this.effectiveStrokeWidth = consts.BASE_STROKE_WIDTH / this.geometry.scale;
         this.effectivePointSize = (
@@ -601,13 +636,21 @@ export class InteractionHandlerImpl implements InteractionHandler {
             });
         });
 
-        this.intermediateShapes.forEach((shape) => {
-            shape.fill({ opacity: this.effectiveShapeOpacity });
-        });
+        if (previousOffset !== geometry.offset && selectionShapes.length) {
+            this.putShapes(selectionShapes);
+        } else {
+            this.intermediateShapes.forEach((shape) => {
+                shape.stroke({ width: this.effectiveStrokeWidth });
+                shape.fill({ opacity: this.effectiveShapeOpacity });
+                if (shape instanceof SVG.Circle) {
+                    shape.attr('r', this.effectivePointSize);
+                }
+            });
 
-        this.intermediateMaskOutlines.forEach((outline) => {
-            outline.stroke({ width: this.effectiveStrokeWidth });
-        });
+            this.intermediateMaskOutlines.forEach((outline) => {
+                outline.stroke({ width: this.effectiveStrokeWidth });
+            });
+        }
     }
 
     public interact(interactData: InteractionData): void {

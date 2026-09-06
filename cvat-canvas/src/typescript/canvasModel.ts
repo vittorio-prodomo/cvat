@@ -143,6 +143,7 @@ export interface InteractionData {
             shapeType: string;
             points: ArrayLike<number>;
             maskOutlines?: ArrayLike<number>[];
+            rotation?: number;
         }[];
     };
     settings?: {
