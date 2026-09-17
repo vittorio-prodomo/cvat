@@ -431,6 +431,10 @@ g.cvat_canvas_shape_occluded {
     stroke: white;
 }
 
+#cvat_canvas_content.cvat_canvas_clean_image > :not(.cvat_canvas_zoom_selection) {
+    display: none !important;
+}
+
 #cvat_canvas_content {
     @extend .cvat_canvas_pixelized;
 

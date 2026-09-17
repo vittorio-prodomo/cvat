@@ -146,6 +146,19 @@ class DrawShapePopoverContainer extends React.PureComponent<Props, State> {
 
         const selectedLabel = labels.find((label) => label.id === selectedLabelID);
         if (selectedLabel) {
+            const rememberDrawing = (): void => {
+                onDrawStart(
+                    shapeType,
+                    selectedLabel.id,
+                    objectType,
+                    numberOfPoints,
+                    rectDrawingMethod,
+                    cuboidDrawingMethod,
+                    effectiveSimplifyPoly,
+                );
+            };
+            if (canvasInstance instanceof Canvas) rememberDrawing();
+
             canvasInstance.draw({
                 enabled: true,
                 rectDrawingMethod,
@@ -158,15 +171,7 @@ class DrawShapePopoverContainer extends React.PureComponent<Props, State> {
                 crosshair: [ShapeType.RECTANGLE, ShapeType.CUBOID, ShapeType.ELLIPSE].includes(shapeType),
             });
 
-            onDrawStart(
-                shapeType,
-                selectedLabel.id,
-                objectType,
-                numberOfPoints,
-                rectDrawingMethod,
-                cuboidDrawingMethod,
-                effectiveSimplifyPoly,
-            );
+            if (!(canvasInstance instanceof Canvas)) rememberDrawing();
         }
     }
 

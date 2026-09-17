@@ -80,6 +80,7 @@ export enum ColorBy {
 }
 
 export interface Configuration {
+    cleanImageMode?: boolean;
     smoothImage?: boolean;
     autoborders?: boolean;
     snapToPoint?: boolean;
@@ -416,6 +417,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
                 width: 0,
             },
             configuration: {
+                cleanImageMode: false,
                 smoothImage: true,
                 autoborders: false,
                 snapToPoint: false,
@@ -955,6 +957,10 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
     }
 
     public configure(configuration: Configuration): void {
+        if (typeof configuration.cleanImageMode === 'boolean') {
+            this.data.configuration.cleanImageMode = configuration.cleanImageMode;
+        }
+
         if (typeof configuration.displayAllText === 'boolean') {
             this.data.configuration.displayAllText = configuration.displayAllText;
         }

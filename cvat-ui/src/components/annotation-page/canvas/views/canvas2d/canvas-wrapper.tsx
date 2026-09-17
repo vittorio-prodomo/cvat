@@ -129,6 +129,7 @@ interface StateToProps {
     imageFilters: ImageFilter[];
     activeControl: ActiveControl;
     activeObjectHidden: boolean;
+    cleanImageMode: boolean;
 }
 
 interface DispatchToProps {
@@ -164,7 +165,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
     const {
         annotation: {
             canvas: {
-                activeControl, instance: canvasInstance, ready: canvasIsReady, activeObjectHidden,
+                activeControl, instance: canvasInstance, ready: canvasIsReady, activeObjectHidden, cleanImageMode,
             },
             drawing: { activeLabelID, activeObjectType },
             job: { instance: jobInstance },
@@ -277,6 +278,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         highlightedConflict,
         imageFilters,
         activeObjectHidden,
+        cleanImageMode,
     };
 }
 
@@ -404,6 +406,14 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
 }
 
 type Props = StateToProps & DispatchToProps;
+type CanvasConfiguration = Parameters<Canvas['configure']>[0] & { cleanImageMode: boolean };
+type CleanImageCanvas = Omit<Canvas, 'configure'> & {
+    configure(configuration: CanvasConfiguration): void;
+};
+
+function asCleanImageCanvas(canvas: Canvas): CleanImageCanvas {
+    return canvas as CleanImageCanvas;
+}
 
 class CanvasWrapperComponent extends React.PureComponent<Props> {
     private debouncedUpdate = debounce(this.updateCanvas.bind(this), 250, { leading: true });
@@ -430,15 +440,17 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             showGroundTruth,
             resetZoom,
             focusedObjectPadding,
+            cleanImageMode,
         } = this.props;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
+        const cleanImageCanvas = asCleanImageCanvas(canvasInstance);
 
         // It's awful approach from the point of view React
         // But we do not have another way because cvat-canvas returns regular DOM element
         const [wrapper] = window.document.getElementsByClassName('cvat-canvas-container');
         wrapper.appendChild(canvasInstance.html());
 
-        canvasInstance.configure({
+        cleanImageCanvas.configure({
             undefinedAttrValue: config.UNDEFINED_ATTRIBUTE_VALUE,
             displayAllText: showObjectsTextAlways,
             autoborders: automaticBordering,
@@ -458,6 +470,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             textContent,
             resetZoom,
             focusedObjectPadding,
+            cleanImageMode,
         });
 
         this.initialSetup();
@@ -503,8 +516,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             imageFilters,
             focusedObjectPadding,
             renderData,
+            cleanImageMode,
         } = this.props;
         const { canvasInstance } = this.props as { canvasInstance: Canvas };
+        const cleanImageCanvas = asCleanImageCanvas(canvasInstance);
 
         if (
             prevProps.showObjectsTextAlways !== showObjectsTextAlways ||
@@ -525,9 +540,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             prevProps.outlined !== outlined ||
             prevProps.showGroundTruth !== showGroundTruth ||
             prevProps.resetZoom !== resetZoom ||
-            prevProps.focusedObjectPadding !== focusedObjectPadding
+            prevProps.focusedObjectPadding !== focusedObjectPadding ||
+            prevProps.cleanImageMode !== cleanImageMode
         ) {
-            canvasInstance.configure({
+            cleanImageCanvas.configure({
                 undefinedAttrValue: config.UNDEFINED_ATTRIBUTE_VALUE,
                 displayAllText: showObjectsTextAlways,
                 autoborders: automaticBordering,
@@ -547,6 +563,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 showConflicts: showGroundTruth,
                 resetZoom,
                 focusedObjectPadding,
+                cleanImageMode,
             });
         }
 
@@ -1159,6 +1176,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             automaticBordering,
             snapToPoint,
             showTagsOnFrame,
+            cleanImageMode,
             canvasIsReady,
             annotations,
             activatedStateID,
@@ -1267,7 +1285,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                     </button>
                 </CVATTooltip>
 
-                {showTagsOnFrame ? (
+                {showTagsOnFrame && !cleanImageMode ? (
                     <div className='cvat-canvas-frame-tags'>
                         <FrameTags />
                     </div>

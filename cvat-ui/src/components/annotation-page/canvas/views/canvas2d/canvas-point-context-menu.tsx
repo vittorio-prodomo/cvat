@@ -20,6 +20,7 @@ interface StateToProps {
     top: number;
     left: number;
     type: ContextMenuType;
+    cleanImageMode: boolean;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -27,6 +28,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         annotation: {
             annotations: { states, activatedStateID },
             canvas: {
+                cleanImageMode,
                 contextMenu: {
                     visible, top, left, type, pointID: selectedPoint,
                 },
@@ -44,6 +46,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         left,
         top,
         type,
+        cleanImageMode,
     };
 }
 
@@ -68,6 +71,7 @@ type Props = StateToProps & DispatchToProps;
 function CanvasPointContextMenu(props: Props): React.ReactPortal | null {
     const {
         onCloseContextMenu, onUpdateAnnotations, activatedState, visible, type, top, left,
+        cleanImageMode,
     } = props;
 
     const [contextMenuFor, setContextMenuFor] = useState(activatedState);
@@ -101,7 +105,7 @@ function CanvasPointContextMenu(props: Props): React.ReactPortal | null {
         }
     };
 
-    return visible && contextMenuFor && type === ContextMenuType.CANVAS_SHAPE_POINT ?
+    return !cleanImageMode && visible && contextMenuFor && type === ContextMenuType.CANVAS_SHAPE_POINT ?
         ReactDOM.createPortal(
             <div className='cvat-canvas-point-context-menu' style={{ top, left }}>
                 {contextMenuFor && (

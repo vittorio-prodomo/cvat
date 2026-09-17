@@ -55,14 +55,16 @@ function SliceControl(props: Props): JSX.Element {
                 onClick: (event?: React.MouseEvent): void => {
                     const triggeredByShortcut = !event;
                     canvasInstance.cancel();
+                    const clientID = triggeredByShortcut ?
+                        getCVATStore().getState().annotation.annotations.activatedStateID || undefined : undefined;
+                    updateActiveControl(ActiveControl.SLICE);
                     canvasInstance.slice({
                         enabled: true,
                         getContour: opencvWrapper.getContourFromState,
                         ...(triggeredByShortcut ? {
-                            clientID: getCVATStore().getState().annotation.annotations.activatedStateID || undefined,
+                            clientID,
                         } : {}),
                     });
-                    updateActiveControl(ActiveControl.SLICE);
                 },
             };
 

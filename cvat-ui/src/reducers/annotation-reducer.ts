@@ -6,10 +6,12 @@
 import _ from 'lodash';
 import { AnyAction } from 'redux';
 import { AnnotationActionTypes } from 'actions/annotation-actions';
+import { ReviewActionTypes } from 'actions/review-actions';
 import { JobsActionTypes } from 'actions/jobs-actions';
 import { AuthActionTypes } from 'actions/auth-actions';
 import { BoundariesActionTypes } from 'actions/boundaries-actions';
 import { Canvas, CanvasMode, RenderData } from 'cvat-canvas-wrapper';
+import { shouldKeepCleanImageMode } from 'utils/clean-image-mode';
 import { Canvas3d } from 'cvat-canvas3d-wrapper';
 import {
     DimensionType, getCore, JobStage, Label, LabelType, ObjectState, ObjectType, ShapeType,
@@ -88,6 +90,9 @@ const defaultState: AnnotationState = {
         ready: false,
         activeControl: ActiveControl.CURSOR,
         activeObjectHidden: false,
+        cleanImageMode: false,
+        detectorInferencePending: false,
+        detectorOperationIDs: [],
     },
     job: {
         openTime: null,
@@ -601,6 +606,11 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 canvas: {
                     ...state.canvas,
                     activeControl,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        activeControl,
+                        payload.updateCurrentControl === true,
+                    ),
                 },
                 drawing: {
                     ...defaultState.drawing,
@@ -620,6 +630,11 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 canvas: {
                     ...state.canvas,
                     activeControl,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        activeControl,
+                        true,
+                    ),
                 },
             };
         }
@@ -635,9 +650,50 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 canvas: {
                     ...state.canvas,
                     activeControl,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        activeControl,
+                        false,
+                    ),
                     contextMenu: {
                         ...defaultState.canvas.contextMenu,
                     },
+                },
+            };
+        }
+        case ReviewActionTypes.CREATE_ISSUE:
+        case ReviewActionTypes.START_ISSUE:
+        case ReviewActionTypes.SUBMIT_REVIEW: {
+            if (!state.canvas.cleanImageMode || !(state.canvas.instance instanceof Canvas)) return state;
+            return {
+                ...state,
+                canvas: { ...state.canvas, cleanImageMode: false },
+            };
+        }
+        case AnnotationActionTypes.SET_DETECTOR_INFERENCE_PENDING: {
+            const { operationID, pending } = action.payload;
+            const { detectorOperationIDs: previousIDs } = state.canvas;
+            if (previousIDs.includes(operationID) === pending) return state;
+            const detectorOperationIDs = pending ? [...previousIDs, operationID] :
+                previousIDs.filter((id) => id !== operationID);
+            return {
+                ...state,
+                canvas: {
+                    ...state.canvas,
+                    detectorInferencePending: detectorOperationIDs.length > 0,
+                    detectorOperationIDs,
+                    cleanImageMode: pending ? false : state.canvas.cleanImageMode,
+                },
+            };
+        }
+        case AnnotationActionTypes.SWITCH_CLEAN_IMAGE_MODE: {
+            const { enabled } = action.payload;
+            return {
+                ...state,
+                canvas: {
+                    ...state.canvas,
+                    cleanImageMode: enabled && !state.canvas.detectorInferencePending,
+                    contextMenu: enabled ? { ...defaultState.canvas.contextMenu } : state.canvas.contextMenu,
                 },
             };
         }
@@ -735,6 +791,14 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     ...state.editing,
                     objectState,
                 },
+                canvas: {
+                    ...state.canvas,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        state.canvas.activeControl,
+                        Boolean(objectState),
+                    ),
+                },
             };
         }
         case AnnotationActionTypes.HIDE_ACTIVE_OBJECT: {
@@ -795,6 +859,11 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 canvas: {
                     ...state.canvas,
                     activeControl,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        activeControl,
+                        true,
+                    ),
                     contextMenu: {
                         ...defaultState.canvas.contextMenu,
                     },
@@ -1115,6 +1184,9 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
         }
         case AnnotationActionTypes.INTERACT_WITH_CANVAS: {
             const { activeInteractor, activeLabelID, activeInteractorParameters } = action.payload;
+            const activeControl = activeInteractor.kind.startsWith('opencv') ?
+                ActiveControl.OPENCV_TOOLS :
+                ActiveControl.AI_TOOLS;
             return {
                 ...state,
                 annotations: {
@@ -1129,9 +1201,12 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                 },
                 canvas: {
                     ...state.canvas,
-                    activeControl: activeInteractor.kind.startsWith('opencv') ?
-                        ActiveControl.OPENCV_TOOLS :
-                        ActiveControl.AI_TOOLS,
+                    activeControl,
+                    cleanImageMode: shouldKeepCleanImageMode(
+                        state.canvas.cleanImageMode,
+                        activeControl,
+                        true,
+                    ),
                 },
             };
         }

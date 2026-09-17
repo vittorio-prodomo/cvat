@@ -55,8 +55,8 @@ function JoinControl(props: Props): JSX.Element {
                 className: 'cvat-join-control',
                 onClick: (): void => {
                     canvasInstance.cancel();
-                    canvasInstance.join({ enabled: true });
                     updateActiveControl(ActiveControl.JOIN);
+                    canvasInstance.join({ enabled: true });
                 },
             };
 

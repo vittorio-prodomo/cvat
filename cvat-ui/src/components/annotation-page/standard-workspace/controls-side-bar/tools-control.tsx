@@ -41,6 +41,7 @@ import {
 } from 'reducers';
 import {
     interactWithCanvas,
+    setDetectorInferencePending,
     switchNavigationBlocked as switchNavigationBlockedAction,
     fetchAnnotationsAsync,
     updateAnnotationsAsync,
@@ -98,9 +99,10 @@ interface StateToProps {
 
 interface DispatchToProps {
     updateAnnotations: (states: ObjectState[]) => Promise<void>;
-    createAnnotations: (states: ObjectState[]) => void;
+    createAnnotations: (states: ObjectState[]) => Promise<number[]>;
     fetchAnnotations: () => void;
     onInteractionStart: typeof interactWithCanvas;
+    setDetectorInferencePending: typeof setDetectorInferencePending;
     onSwitchToolsBlockerState: typeof switchToolsBlockerState;
     switchNavigationBlocked: typeof switchNavigationBlockedAction;
 }
@@ -161,6 +163,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
 }
 
 const mapDispatchToProps = {
+    setDetectorInferencePending,
     onInteractionStart: interactWithCanvas,
     updateAnnotations: updateAnnotationsAsync,
     createAnnotations: createAnnotationsAsync,
@@ -280,9 +283,15 @@ function registerPlugin(): (callback: null | (() => void)) => void {
 
 const onRemoveAnnotations = registerPlugin();
 
+interface DetectorOperation {
+    id: string;
+    committing: boolean;
+}
+
 export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private maskAdjustmentClient: MaskMorphologyClient | null = null;
     private detectorPostprocessingClient: DetectorPostprocessingClient | null = null;
+    private detectorOperation: DetectorOperation | null = null;
     private detectorPreview: {
         revision: number;
         jobID: number | null;
@@ -630,6 +639,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     };
 
     private cancelListener = async (): Promise<void> => {
+        if (this.detectorPreview.jobID !== null) this.cancelDetectorPreview();
         this.clearMaskAdjustments();
         this.refinement = null;
         this.refinementRevision++;
@@ -1774,8 +1784,8 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                                     this.setState({ mode: 'tracking' });
                                     const parameters = { command: 'draw_box' as const, settings: { crosshair: true } };
                                     canvasInstance.cancel();
-                                    canvasInstance.interact({ enabled: true, ...parameters });
                                     onInteractionStart(activeTracker, activeLabelID, parameters);
+                                    canvasInstance.interact({ enabled: true, ...parameters });
                                     onSwitchToolsBlockerState({ buttonVisible: false });
                                 }
                             }}
@@ -2070,11 +2080,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                                     }
                                     const activateInteractor = (): void => {
                                         canvasInstance.cancel();
-                                        canvasInstance.interact({ enabled: true, ...parameters });
                                         // For mapped multiclass interactors, pass -1 as a sentinel since the
                                         // label is determined by the mapping
                                         const labelID = activeLabelID ?? -1;
                                         onInteractionStart(activeInteractor, labelID, parameters);
+                                        canvasInstance.interact({ enabled: true, ...parameters });
                                     };
                                     if (conceptMode) {
                                         this.setState({
@@ -2121,6 +2131,18 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         return this.detectorPostprocessingClient;
     }
 
+    private beginDetectorOperation(): DetectorOperation {
+        const operation = { id: lodash.uniqueId('detector_operation_'), committing: false };
+        this.detectorOperation = operation;
+        this.props.setDetectorInferencePending(operation.id, true);
+        return operation;
+    }
+
+    private finishDetectorOperation(operation: DetectorOperation): void {
+        this.props.setDetectorInferencePending(operation.id, false);
+        if (this.detectorOperation === operation) this.detectorOperation = null;
+    }
+
     private cancelDetectorPreview = (resetState = true): void => {
         const canvasPreviewActive = this.state.detectorPreviewActive;
         this.detectorPreview.revision++;
@@ -2139,6 +2161,10 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             options: null,
             debounce: null,
         };
+        const operation = this.detectorOperation;
+        this.detectorOperation = null;
+        // Core annotation writes cannot be canceled. Their own finalizer releases the guard.
+        if (operation && !operation.committing) this.finishDetectorOperation(operation);
         if (canvasPreviewActive) {
             this.props.canvasInstance.interact({ enabled: false });
         }
@@ -2154,6 +2180,20 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             });
         }
     };
+
+    private async commitDetectorAnnotations(
+        states: ObjectState[],
+        operation = this.beginDetectorOperation(),
+    ): Promise<void> {
+        operation.committing = true;
+        this.cancelDetectorPreview();
+        try {
+            await this.props.createAnnotations(states);
+        } finally {
+            // Token-scoped Redux cleanup remains safe after cancellation, unmount, or job changes.
+            this.finishDetectorOperation(operation);
+        }
+    }
 
     private processDetectorPreview = async (
         revision: number,
@@ -2230,7 +2270,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
         await this.processDetectorPreview(this.detectorPreview.revision, this.state.detectorConfidence);
     };
 
-    private finishDetectorPreview = (): void => {
+    private finishDetectorPreview = async (): Promise<void> => {
         const {
             displayed, tags, frame,
         } = this.detectorPreview;
@@ -2243,13 +2283,12 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
             labels: this.props.jobInstance.labels,
             zOrder: this.props.currentZOrder,
         };
-        this.cancelDetectorPreview();
         try {
             const states = toObjectStates(
                 { tags: snapshot.tags, shapes: snapshot.shapes },
                 { labels: snapshot.labels, frame: snapshot.frame, zOrder: snapshot.zOrder },
             );
-            this.props.createAnnotations(states);
+            await this.commitDetectorAnnotations(states);
         } catch (error: unknown) {
             notification.error({
                 description: <CVATMarkdown>{error instanceof Error ? error.message : String(error)}</CVATMarkdown>,
@@ -2262,7 +2301,6 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
     private renderDetectorBlock(): JSX.Element {
         const {
             jobInstance, detectors, currentZOrder, frame, labels, frameData,
-            createAnnotations,
         } = this.props;
 
         if (!detectors.length) {
@@ -2308,6 +2346,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     this.detectorPreview.jobID = snapshot.jobID;
                     this.detectorPreview.frame = snapshot.frame;
                     this.detectorPreview.options = options;
+                    const operation = this.beginDetectorOperation();
                     try {
                         this.setState({
                             mode: 'detection',
@@ -2350,8 +2389,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                                     { tags, shapes: displayed },
                                     { labels: jobInstance.labels, frame, zOrder: currentZOrder },
                                 );
-                                this.cancelDetectorPreview();
-                                createAnnotations(states);
+                                await this.commitDetectorAnnotations(states, operation);
                             } catch (error: unknown) {
                                 if (!this.detectorRequestIsCurrent(snapshot, model)) return;
                                 this.cancelDetectorPreview();
@@ -2373,8 +2411,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                                 { tags, shapes: [] },
                                 { labels: jobInstance.labels, frame, zOrder: currentZOrder },
                             );
-                            this.cancelDetectorPreview();
-                            createAnnotations(states);
+                            await this.commitDetectorAnnotations(states, operation);
                             return;
                         }
 
@@ -2403,6 +2440,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                             duration: null,
                         });
                     } finally {
+                        this.finishDetectorOperation(operation);
                         if (this.detectorRequestIsCurrent(snapshot, model)) {
                             this.setState({ fetching: false });
                         }

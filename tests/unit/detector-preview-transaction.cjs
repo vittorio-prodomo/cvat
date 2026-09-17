@@ -187,7 +187,7 @@ function shape(score = 0.9) {
     };
 }
 
-function create() {
+function create(sharedLifecycle) {
     workers.length = 0;
     timers.clear();
     messages.length = 0;
@@ -195,7 +195,7 @@ function create() {
     const commands = [];
     const creations = [];
     const canvasListeners = new Map();
-    const lifecycle = { unmounting: false, setStateDuringUnmount: 0 };
+    const lifecycle = sharedLifecycle || { unmounting: false, setStateDuringUnmount: 0, pending: false, pendingTransitions: [], clean: true, operations: new Set() };
     const canvasElement = {
         addEventListener(name, listener) {
             if (!canvasListeners.has(name)) canvasListeners.set(name, new Set());
@@ -230,8 +230,20 @@ function create() {
         jobInstance: { id: 11, taskId: 12, dimension: '2d', labels: [{ id: 7, type: 'any' }] },
         defaultApproxPolyAccuracy: 0,
         toolsBlockerState: { algorithmsLocked: false },
-        createAnnotations: (states) => creations.push(states),
+        createAnnotations: async (states) => {
+            assert.equal(lifecycle.clean, false, 'direct create must run after leaving clean image mode');
+            creations.push(states);
+            return [];
+        },
         onInteractionStart() {},
+        setDetectorInferencePending(operationID, pending) {
+            assert.equal(typeof operationID, 'string');
+            if (pending) lifecycle.operations.add(operationID);
+            else lifecycle.operations.delete(operationID);
+            lifecycle.pending = lifecycle.operations.size > 0;
+            lifecycle.pendingTransitions.push(lifecycle.pending);
+            if (lifecycle.pending) lifecycle.clean = false;
+        },
     };
     const component = new ToolsControlComponent(props);
     component.setState = (update, callback) => {
@@ -297,8 +309,7 @@ test('Done snapshots and creates the displayed shapes and pending tags exactly o
     await detectorRunner(component).props.runInference(model, body, options());
 
     const done = preview(component).props.onDone;
-    done();
-    done();
+    await Promise.all([done(), done()]);
 
     assert.equal(creations.length, 1);
     assert.deepEqual(creations[0].map(({ kind }) => kind), ['tag', 'shape']);
@@ -340,13 +351,14 @@ test('tag-only preview commits immediately and an empty result reports without c
 });
 
 test('frame navigation invalidates a pending detector response', async () => {
-    const { component, creations, model } = create();
+    const { component, creations, model, lifecycle } = create();
     let release;
     lambdaCall = () => new Promise((resolve) => { release = resolve; });
     const request = detectorRunner(component).props.runInference(model, body, options());
     const previousProps = component.props;
     component.props = { ...previousProps, frame: 4 };
     component.componentDidUpdate(previousProps, component.state);
+    assert.equal(lifecycle.pending, false);
     release(makeResult({ shapes: [shape()] }));
     await request;
 
@@ -436,4 +448,250 @@ test('unmount removes the canvas cancel listener before disabling detector previ
     harness.component.componentWillUnmount();
 
     assert.equal(harness.lifecycle.setStateDuringUnmount, 0);
+});
+
+
+test('every detector branch exits clean mode before the server call and clears pending on completion', async () => {
+    for (const [result, previewEnabled] of [
+        [makeResult({ shapes: [shape()] }), true],
+        [makeResult({ shapes: [shape()] }), false],
+        [makeResult({ tags: [{ label_id: 7 }] }), true],
+        [makeResult(), true],
+    ]) {
+        const { component, model, lifecycle } = create();
+        lambdaCall = async () => {
+            assert.equal(lifecycle.pending, true);
+            assert.equal(lifecycle.clean, false);
+            return result;
+        };
+        await detectorRunner(component).props.runInference(model, body, options(previewEnabled));
+        assert.equal(lifecycle.pendingTransitions.includes(true), true);
+        assert.equal(lifecycle.pending, false);
+        assert.equal(notifications.length, 0);
+    }
+});
+
+test('pending inference is cleared on error and every cancellation route', async () => {
+    const cancelRoutes = [
+        (component) => component.cancelDetectorPreview(),
+        (component) => detectorRunner(component).props.onModelChange(),
+        (component) => find(component.renderPopoverContent(), (element) => element.props?.items).props.onChange('interactors'),
+        (component) => {
+            const before = component.props;
+            component.props = { ...before, isActivated: false };
+            component.componentDidUpdate(before, component.state);
+        },
+        (component) => component.componentWillUnmount(),
+        (component) => component.cancelListener(),
+    ];
+    for (const cancel of cancelRoutes) {
+        const { component, model, lifecycle, creations } = create();
+        let resolve;
+        lambdaCall = () => new Promise((done) => { resolve = done; });
+        const request = detectorRunner(component).props.runInference(model, body, options(false));
+        assert.equal(lifecycle.pending, true);
+        cancel(component);
+        assert.equal(lifecycle.pending, false);
+        resolve(makeResult({ shapes: [shape()] }));
+        await request;
+        assert.equal(creations.length, 0);
+    }
+    const { component, model, lifecycle } = create();
+    lambdaCall = async () => { throw new Error('inference failed'); };
+    await detectorRunner(component).props.runInference(model, body, options());
+    assert.equal(lifecycle.pending, false);
+    assert.equal(lifecycle.pendingTransitions.includes(true), true);
+});
+
+test('an older request finalizer cannot clear the pending state of a newer request', async () => {
+    const { component, model, lifecycle } = create();
+    const resolve = [];
+    lambdaCall = () => new Promise((done) => resolve.push(done));
+    const old = detectorRunner(component).props.runInference(model, body, options());
+    const current = detectorRunner(component).props.runInference(model, body, options());
+    assert.equal(lifecycle.pending, true);
+    resolve[0](makeResult());
+    await old;
+    assert.equal(lifecycle.pending, true);
+    resolve[1](makeResult());
+    await current;
+    assert.equal(lifecycle.pending, false);
+});
+
+
+test('tracker dispatches the interaction transition before starting the canvas operation', () => {
+    const { component } = create();
+    const trace = [];
+    const tracker = { id: 'tracker', kind: 'tracker', supportedShapeTypes: ['rectangle'] };
+    component.props = {
+        ...component.props, trackers: [tracker],
+        onInteractionStart: () => trace.push('dispatch'),
+        onSwitchToolsBlockerState() {},
+    };
+    component.props.canvasInstance.cancel = () => trace.push('cancel');
+    component.props.canvasInstance.interact = () => trace.push('interact');
+    component.state = { ...component.state, activeTracker: tracker, activeLabelID: 7 };
+    const button = find(component.renderTrackerBlock(), (element) => element.props?.children === 'Track');
+    button.props.onClick();
+    assert.deepEqual(trace, ['cancel', 'dispatch', 'interact']);
+});
+
+
+function deferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+    return { promise, resolve, reject };
+}
+
+async function startDeferredCommit(branch, sharedLifecycle) {
+    const harness = create(sharedLifecycle);
+    const write = deferred();
+    const started = deferred();
+    const observations = [];
+    harness.component.props.createAnnotations = async (states) => {
+        observations.push({ phase: 'start', pending: harness.lifecycle.pending, clean: harness.lifecycle.clean });
+        started.resolve();
+        await write.promise;
+        observations.push({ phase: 'materialize', pending: harness.lifecycle.pending, clean: harness.lifecycle.clean });
+        harness.creations.push(states);
+        return [];
+    };
+    lambdaCall = async () => branch === 'tags' ? makeResult({ tags: [{ label_id: 7 }] }) : makeResult({ shapes: [shape()] });
+    let completion = detectorRunner(harness.component).props.runInference(harness.model, body, options(branch !== 'direct'));
+    if (branch === 'done') {
+        await completion;
+        completion = preview(harness.component).props.onDone();
+    }
+    await started.promise;
+    return { ...harness, write, observations, completion };
+}
+
+const guardModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'cvat-ui/src/utils/clean-image-mode.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, {
+    module: guardModule, exports: guardModule.exports,
+    require: (name) => name === 'reducers' ?
+        { ActiveControl: { CURSOR: 'cursor', DRAG_CANVAS: 'drag', ZOOM_CANVAS: 'zoom' } } :
+        { CanvasMode: { IDLE: 'idle', DRAG_CANVAS: 'drag', ZOOM_CANVAS: 'zoom' } },
+});
+
+test('direct, tags-only, and Done writes retain pending until annotations materialize', async (t) => {
+    for (const branch of ['direct', 'tags', 'done']) {
+        await t.test(branch, async () => {
+            const harness = await startDeferredCommit(branch);
+            try {
+                assert.equal(harness.lifecycle.pending, true);
+                assert.equal(harness.creations.length, 0);
+                assert.equal(guardModule.exports.canEnterCleanImageMode('cursor', 'idle', false, harness.lifecycle.pending), false);
+                assert.deepEqual(harness.observations, [{ phase: 'start', pending: true, clean: false }]);
+            } finally {
+                harness.write.resolve();
+                await harness.completion;
+            }
+            assert.deepEqual(harness.observations.at(-1), { phase: 'materialize', pending: true, clean: false });
+            assert.equal(harness.lifecycle.pending, false);
+        });
+    }
+});
+
+test('external cancellation cannot release a write that has already started', async (t) => {
+    for (const branch of ['direct', 'tags', 'done']) {
+        await t.test(branch, async () => {
+            const harness = await startDeferredCommit(branch);
+            try {
+                harness.component.cancelDetectorPreview();
+                assert.equal(harness.lifecycle.pending, true);
+            } finally {
+                harness.write.resolve();
+                await harness.completion;
+            }
+            assert.equal(harness.creations.length, 1);
+            assert.equal(harness.lifecycle.pending, false);
+        });
+    }
+});
+
+test('unmount retains an in-flight write guard and its completion does not set component state', async () => {
+    const harness = await startDeferredCommit('direct');
+    try {
+        harness.lifecycle.unmounting = true;
+        harness.component.componentWillUnmount();
+        assert.equal(harness.lifecycle.pending, true);
+    } finally {
+        harness.write.resolve();
+        await harness.completion;
+    }
+    assert.equal(harness.lifecycle.pending, false);
+    assert.equal(harness.lifecycle.setStateDuringUnmount, 0);
+});
+
+test('completion of an older component write cannot clear a newer component operation', async () => {
+    const older = await startDeferredCommit('direct');
+    const newer = await startDeferredCommit('tags', older.lifecycle);
+    try {
+        older.write.resolve();
+        await older.completion;
+        assert.equal(newer.lifecycle.pending, true);
+    } finally {
+        newer.write.resolve();
+        await newer.completion;
+    }
+    assert.equal(newer.lifecycle.pending, false);
+});
+
+
+test('failed annotation writes release their guard in every detector branch', async (t) => {
+    for (const branch of ['direct', 'tags', 'done']) {
+        await t.test(branch, async () => {
+            const harness = await startDeferredCommit(branch);
+            assert.equal(harness.lifecycle.pending, true);
+            harness.write.reject(new Error('annotation write failed'));
+            await harness.completion;
+            assert.equal(harness.lifecycle.pending, false);
+            assert.equal(harness.creations.length, 0);
+            assert.equal(harness.lifecycle.operations.size, 0);
+        });
+    }
+});
+
+test('a newer write finishing first leaves the older uncancelable write guarded', async () => {
+    const older = await startDeferredCommit('direct');
+    const newer = await startDeferredCommit('tags', older.lifecycle);
+    newer.write.resolve();
+    await newer.completion;
+    assert.equal(older.lifecycle.pending, true);
+    older.write.resolve();
+    await older.completion;
+    assert.equal(older.lifecycle.pending, false);
+});
+
+test('a new job operation survives completion of an old component write after session reset', async () => {
+    const older = await startDeferredCommit('done');
+    // CLOSE_JOB/LOGOUT reset is checked against the actual reducer in clean-image-mode.cjs.
+    older.lifecycle.operations.clear();
+    older.lifecycle.pending = false;
+    const newer = await startDeferredCommit('direct', older.lifecycle);
+    older.write.resolve();
+    await older.completion;
+    assert.equal(newer.lifecycle.pending, true);
+    newer.write.resolve();
+    await newer.completion;
+    assert.equal(newer.lifecycle.pending, false);
+});
+
+test('an older write finalizer preserves the ownership needed to cancel a newer pending request', async () => {
+    const older = await startDeferredCommit('direct');
+    const newer = create(older.lifecycle);
+    const response = deferred();
+    lambdaCall = () => response.promise;
+    const request = detectorRunner(newer.component).props.runInference(newer.model, body, options());
+    older.write.resolve();
+    await older.completion;
+    assert.equal(newer.lifecycle.pending, true);
+    newer.component.cancelDetectorPreview();
+    assert.equal(newer.lifecycle.pending, false);
+    response.resolve(makeResult());
+    await request;
 });

@@ -20,6 +20,7 @@ import { Workspace } from 'reducers';
 
 import MDEditor from '@uiw/react-md-editor';
 import rehypeSanitize from 'rehype-sanitize';
+import CleanImageModeControl from './clean-image-mode-control';
 
 interface Props {
     showStatistics(): void;
@@ -151,6 +152,7 @@ function RightGroup(props: Props): JSX.Element {
                 <Icon component={FilterIcon} />
                 Filters
             </Button>
+            <CleanImageModeControl />
             <div>
                 <Select
                     popupClassName='cvat-workspace-selector-dropdown'

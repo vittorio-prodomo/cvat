@@ -47,8 +47,8 @@ function CreateIssueControl(props: Props): JSX.Element {
             updateActiveControl(ActiveControl.CURSOR);
         } else {
             canvasInstance.cancel();
-            canvasInstance.selectRegion(true);
             updateActiveControl(ActiveControl.OPEN_ISSUE);
+            canvasInstance.selectRegion(true);
         }
     };
 

@@ -123,7 +123,10 @@ export class ZoomHandlerImpl implements ZoomHandler {
     public cancel(): void {
         this.canvas.node.removeEventListener('mousedown', this.bindedOnSelectStart);
         this.canvas.node.removeEventListener('mousemove', this.bindedOnSelectUpdate);
-        this.canvas.node.removeEventListener('mouseup ', this.bindedOnSelectStop);
+        this.canvas.node.removeEventListener('mouseup', this.bindedOnSelectStop);
+        this.selectionRect?.remove();
+        this.selectionRect = null;
+        this.startSelectionPoint = { x: 0, y: 0 };
     }
 
     public transform(geometry: Geometry): void {

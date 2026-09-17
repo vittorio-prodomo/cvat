@@ -50,6 +50,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         showConflicts,
         highlightedConflict,
         activeControl,
+        cleanImageMode,
     } = useSelector((state: CombinedState) => ({
         frameIssues: state.review.frameIssues,
         issuesHidden: state.review.issuesHidden,
@@ -65,6 +66,7 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         showConflicts: state.settings.shapes.showGroundTruth,
         highlightedConflict: state.annotation.annotations.highlightedConflict,
         activeControl: state.annotation.canvas.activeControl,
+        cleanImageMode: state.annotation.canvas.cleanImageMode,
     }), shallowEqual);
 
     const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
@@ -122,10 +124,15 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         }
 
         return () => {};
-    }, [canvasReady]);
+    }, [canvasReady, canvasInstance]);
 
     useEffect(() => {
         if (canvasReady) {
+            if (cleanImageMode) {
+                canvasInstance.setupIssueRegions({});
+                return;
+            }
+
             type IssueRegionSet = Record<number, { hidden: boolean; points: number[] }>;
             const regions = !issuesHidden ? frameIssues
                 .filter((_issue: any) => !issuesResolvedHidden || !_issue.resolved)
@@ -155,10 +162,12 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
                 }
             }
         }
-    }, [newIssuePosition, frameIssues, issuesResolvedHidden, issuesHidden, canvasReady, showConflicts]);
+    }, [
+        newIssuePosition, frameIssues, issuesResolvedHidden, issuesHidden, canvasReady, canvasInstance, cleanImageMode,
+    ]);
 
     useEffect(() => {
-        if (canvasReady && showConflicts && qualityConflicts.length) {
+        if (canvasReady && !cleanImageMode && showConflicts && qualityConflicts.length) {
             const updatedConflictMapping = qualityConflicts
                 .map((conflict: QualityConflict) => {
                     const mainAnnotationsConflict = conflict.annotationConflicts[0];
@@ -189,8 +198,18 @@ export default function IssueAggregatorComponent(): JSX.Element | null {
         } else {
             setConflictMapping([]);
         }
-    }, [geometry, objectStates, showConflicts, canvasReady, qualityConflicts, hiddenZLayers]);
+    }, [
+        geometry, objectStates, showConflicts, canvasReady, canvasInstance, qualityConflicts,
+        hiddenZLayers, cleanImageMode,
+    ]);
 
+    useEffect(() => {
+        if (cleanImageMode && highlightedConflict) {
+            dispatch(highlightConflict(null));
+        }
+    }, [cleanImageMode, highlightedConflict, dispatch]);
+
+    // Keep portal children mounted so hiding the attachment board preserves unsent drafts.
     if (!canvasReady || !geometry) {
         return null;
     }

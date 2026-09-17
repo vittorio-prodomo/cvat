@@ -900,6 +900,9 @@ export interface AnnotationState {
         ready: boolean;
         activeControl: ActiveControl;
         activeObjectHidden: boolean;
+        cleanImageMode: boolean;
+        detectorInferencePending: boolean;
+        detectorOperationIDs: string[];
     };
     job: {
         openTime: null | number;

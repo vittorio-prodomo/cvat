@@ -26,6 +26,7 @@ import { RegionSelector, RegionSelectorImpl } from './regionSelector';
 import { ZoomHandler, ZoomHandlerImpl } from './zoomHandler';
 import { InteractionHandler, InteractionHandlerImpl } from './interactionHandler';
 import { AutoborderHandler, AutoborderHandlerImpl } from './autoborderHandler';
+import { applyCleanImageMode as applyCleanImageModeToRoots } from './cleanImageMode';
 import consts from './consts';
 import {
     translateToSVG, translateFromSVG, translateToCanvas, translateFromCanvas,
@@ -2055,6 +2056,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
         this.canvas.appendChild(this.grid);
         this.canvas.appendChild(this.content);
         this.canvas.appendChild(this.attachmentBoard);
+        this.applyCleanImageMode(this.configuration.cleanImageMode === true);
 
         // Setup API handlers
         this.autoborderHandler = new AutoborderHandlerImpl(this.content, () => this.ctrlPressed);
@@ -2205,6 +2207,17 @@ export class CanvasViewImpl implements CanvasView, Listener {
         model.subscribe(this);
     }
 
+    private applyCleanImageMode(enabled: boolean): void {
+        applyCleanImageModeToRoots({
+            text: this.text,
+            masks: this.masksContent,
+            bitmap: this.bitmap,
+            grid: this.grid,
+            content: this.content,
+            attachments: this.attachmentBoard,
+        }, enabled);
+    }
+
     public notify(model: CanvasModel & Master, reason: UpdateReasons): void {
         this.geometry = this.controller.geometry;
         if (reason === UpdateReasons.CONFIG_UPDATED) {
@@ -2274,6 +2287,10 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 this.background.classList.remove('cvat_canvas_pixelized');
             } else if (configuration.smoothImage === false) {
                 this.background.classList.add('cvat_canvas_pixelized');
+            }
+
+            if (configuration.cleanImageMode !== this.configuration.cleanImageMode) {
+                this.applyCleanImageMode(configuration.cleanImageMode === true);
             }
 
             this.configuration = configuration;

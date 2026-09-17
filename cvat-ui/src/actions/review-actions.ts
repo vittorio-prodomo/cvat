@@ -6,6 +6,7 @@
 import { ActionUnion, createAction, ThunkAction } from 'utils/redux';
 import { getCore } from 'cvat-core-wrapper';
 import { NewIssueSource } from 'reducers';
+import { exitCleanImageModeBeforeMutation } from './annotation-actions';
 
 const cvat = getCore();
 
@@ -70,6 +71,7 @@ export const reviewActions = {
 export type ReviewActions = ActionUnion<typeof reviewActions>;
 
 export const finishIssueAsync = (message: string): ThunkAction => async (dispatch, getState) => {
+    exitCleanImageModeBeforeMutation(dispatch);
     const state = getState();
     const {
         annotation: {
@@ -102,6 +104,7 @@ export const finishIssueAsync = (message: string): ThunkAction => async (dispatc
 };
 
 export const commentIssueAsync = (id: number, message: string): ThunkAction => async (dispatch, getState) => {
+    exitCleanImageModeBeforeMutation(dispatch);
     const state = getState();
     const {
         auth: { user },
@@ -123,6 +126,7 @@ export const commentIssueAsync = (id: number, message: string): ThunkAction => a
 };
 
 export const resolveIssueAsync = (id: number): ThunkAction => async (dispatch, getState) => {
+    exitCleanImageModeBeforeMutation(dispatch);
     const state = getState();
     const {
         auth: { user },
@@ -140,6 +144,7 @@ export const resolveIssueAsync = (id: number): ThunkAction => async (dispatch, g
 };
 
 export const reopenIssueAsync = (id: number): ThunkAction => async (dispatch, getState) => {
+    exitCleanImageModeBeforeMutation(dispatch);
     const state = getState();
     const {
         auth: { user },
@@ -157,6 +162,7 @@ export const reopenIssueAsync = (id: number): ThunkAction => async (dispatch, ge
 };
 
 export const deleteIssueAsync = (id: number): ThunkAction => async (dispatch, getState) => {
+    exitCleanImageModeBeforeMutation(dispatch);
     const state = getState();
     const {
         review: { frameIssues },

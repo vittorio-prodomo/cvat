@@ -31,6 +31,7 @@ interface StateToProps {
     workspace: Workspace;
     latestComments: string[];
     activatedStateID: number | null;
+    cleanImageMode: boolean;
 }
 
 interface DispatchToProps {
@@ -53,6 +54,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                     visible, top, left, type, clientID, parentID,
                 },
                 ready,
+                cleanImageMode,
             },
             workspace,
         },
@@ -85,6 +87,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         workspace,
         latestComments,
         frameConflicts,
+        cleanImageMode,
     };
 }
 
@@ -217,7 +220,8 @@ class CanvasContextMenuContainer extends React.PureComponent<Props, State> {
     };
 
     private onOpenCanvasContextMenu = (e: MouseEvent): void => {
-        const { activatedStateID, onUpdateContextMenu } = this.props;
+        const { activatedStateID, onUpdateContextMenu, cleanImageMode } = this.props;
+        if (cleanImageMode) return;
         if (e.target && !(e.target as HTMLElement).classList.contains('svg_select_points')) {
             onUpdateContextMenu(
                 activatedStateID !== null, e.clientX, e.clientY, null, ContextMenuType.CANVAS_SHAPE,
@@ -226,7 +230,10 @@ class CanvasContextMenuContainer extends React.PureComponent<Props, State> {
     };
 
     private onCanvasPointContextMenu = (e: any): void => {
-        const { objectStates, activatedStateID, onUpdateContextMenu } = this.props;
+        const {
+            objectStates, activatedStateID, onUpdateContextMenu, cleanImageMode,
+        } = this.props;
+        if (cleanImageMode) return;
 
         const [state] = objectStates.filter((el: any) => el.clientID === activatedStateID);
         if (![ShapeType.CUBOID, ShapeType.RECTANGLE, ShapeType.MASK].includes(state.shapeType)) {
@@ -290,7 +297,10 @@ class CanvasContextMenuContainer extends React.PureComponent<Props, State> {
             onStartIssue,
             openIssue,
             onCopyObject,
+            cleanImageMode,
         } = this.props;
+
+        if (cleanImageMode) return null;
 
         return (
             type === ContextMenuType.CANVAS_SHAPE ? (

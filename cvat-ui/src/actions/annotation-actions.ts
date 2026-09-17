@@ -99,6 +99,8 @@ export enum AnnotationActionTypes {
     UPDATE_CACHED_CHUNKS = 'UPDATE_CACHED_CHUNKS',
 
     UPDATE_ACTIVE_CONTROL = 'UPDATE_ACTIVE_CONTROL',
+    SWITCH_CLEAN_IMAGE_MODE = 'SWITCH_CLEAN_IMAGE_MODE',
+    SET_DETECTOR_INFERENCE_PENDING = 'SET_DETECTOR_INFERENCE_PENDING',
 
     COPY_SHAPE = 'COPY_SHAPE',
     PASTE_SHAPE = 'PASTE_SHAPE',
@@ -174,6 +176,20 @@ export enum AnnotationActionTypes {
 export enum AnnotationSource {
     DRAW_SIMPLIFIED_POLY = 'draw_simplified_poly',
     OTHER = 'other',
+}
+
+export function switchCleanImageMode(enabled: boolean): AnyAction {
+    return {
+        type: AnnotationActionTypes.SWITCH_CLEAN_IMAGE_MODE,
+        payload: { enabled },
+    };
+}
+
+export function exitCleanImageModeBeforeMutation(dispatch: ThunkDispatch): void {
+    const { cleanImageMode, instance } = getStore().getState().annotation.canvas;
+    if (cleanImageMode && instance instanceof Canvas) {
+        dispatch(switchCleanImageMode(false));
+    }
 }
 
 export function setHoveredChapter(id: number | null): AnyAction {
@@ -441,6 +457,7 @@ export function removeAnnotationsAsync(
     startFrame: number | undefined, stopFrame: number | undefined, delTrackKeyframesOnly: boolean,
 ): ThunkAction {
     return async (dispatch: ThunkDispatch, getState: () => CombinedState): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             await jobInstance.annotations.clear({
@@ -537,6 +554,7 @@ export function switchSimplifyVisibility(clientID: number | null): AnyAction {
 
 export function propagateObjectAsync(from: number, to: number): ThunkAction {
     return async (dispatch: ThunkDispatch, getState): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         const state = getState();
         const {
             job: {
@@ -581,6 +599,7 @@ export function propagateObjectAsync(from: number, to: number): ThunkAction {
 
 export function removeObjectAsync(objectState: ObjectState, force: boolean): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { frame, jobInstance } = receiveAnnotationsParameters();
             await jobInstance.logger.log(EventScope.deleteObject, { count: 1 });
@@ -858,6 +877,7 @@ export function changeFrameAsync(
 
 export function undoActionAsync(): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const state = getStore().getState();
             const { jobInstance, frame } = receiveAnnotationsParameters();
@@ -897,6 +917,7 @@ export function undoActionAsync(): ThunkAction {
 
 export function redoActionAsync(): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const state = getStore().getState();
             const { jobInstance, frame } = receiveAnnotationsParameters();
@@ -1218,6 +1239,13 @@ export function updateActiveControl(activeControl: ActiveControl): AnyAction {
     };
 }
 
+export function setDetectorInferencePending(operationID: string, pending: boolean): AnyAction {
+    return {
+        type: AnnotationActionTypes.SET_DETECTOR_INFERENCE_PENDING,
+        payload: { operationID, pending },
+    };
+}
+
 function dispatchAnnotationsUpdate(
     dispatch: ThunkDispatch,
     states: CombinedState['annotation']['annotations']['states'],
@@ -1236,6 +1264,7 @@ async function updateObjectsLayers(
     dispatch: ThunkDispatch,
     update: (jobInstance: Job) => Promise<ObjectState[]>,
 ): Promise<void> {
+    exitCleanImageModeBeforeMutation(dispatch);
     const { jobInstance, workspace } = receiveAnnotationsParameters();
     try {
         let updatedStates = await update(jobInstance);
@@ -1272,6 +1301,7 @@ export function updateAnnotationsAsync(statesToUpdate: ObjectState[]): ThunkActi
                 return;
             }
 
+            exitCleanImageModeBeforeMutation(dispatch);
             const promises = statesToSave.map((objectState) => objectState.save());
             let states = await Promise.all(promises);
 
@@ -1342,6 +1372,7 @@ export function createAnnotationsAsync(
     source: AnnotationSource = AnnotationSource.OTHER,
 ): ThunkAction<Promise<number[]>> {
     return async (dispatch: ThunkDispatch): Promise<number[]> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             const clientIds = await jobInstance.annotations.put(statesToCreate);
@@ -1372,6 +1403,7 @@ export function createAnnotationsAsync(
 
 export function mergeAnnotationsAsync(statesToMerge: any[]): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             await jobInstance.annotations.merge(statesToMerge);
@@ -1396,6 +1428,7 @@ export function resetAnnotationsGroup(): AnyAction {
 
 export function groupAnnotationsAsync(statesToGroup: any[]): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             const reset = getStore().getState().annotation.annotations.resetGroupFlag;
@@ -1424,6 +1457,7 @@ export function joinAnnotationsAsync(
     points: number[][],
 ): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
 
@@ -1445,6 +1479,7 @@ export function sliceAnnotationsAsync(
     results: number[][],
 ): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         try {
             const { jobInstance } = receiveAnnotationsParameters();
             await jobInstance.annotations.slice(state, results);
@@ -1462,6 +1497,7 @@ export function sliceAnnotationsAsync(
 
 export function splitAnnotationsAsync(state: CombinedState['annotation']['annotations']['states'][0]): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         const { jobInstance, frame } = receiveAnnotationsParameters();
         try {
             await jobInstance.annotations.split(state, frame);
@@ -1479,6 +1515,7 @@ export function splitAnnotationsAsync(state: CombinedState['annotation']['annota
 
 export function changeGroupColorAsync(group: number, color: string): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
+        exitCleanImageModeBeforeMutation(dispatch);
         const state: CombinedState = getStore().getState();
         const groupStates = state.annotation.annotations.states.filter(
             (_state: any): boolean => _state.group.id === group,
@@ -1662,12 +1699,12 @@ export function repeatDrawShapeAsync(): ThunkAction {
         let activeControl = ActiveControl.CURSOR;
         if (activeInteractor && activeInteractorParameters && activeLabelID && canvasInstance instanceof Canvas) {
             if (activeInteractor.kind.includes('tracker')) {
-                canvasInstance.interact({ enabled: true, ...activeInteractorParameters });
                 dispatch(interactWithCanvas(activeInteractor, activeLabelID, activeInteractorParameters));
+                canvasInstance.interact({ enabled: true, ...activeInteractorParameters });
                 dispatch(switchToolsBlockerState({ buttonVisible: false }));
             } else {
-                canvasInstance.interact({ enabled: true, ...activeInteractorParameters });
                 dispatch(interactWithCanvas(activeInteractor, activeLabelID, activeInteractorParameters));
+                canvasInstance.interact({ enabled: true, ...activeInteractorParameters });
             }
 
             return;

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT clean-image mode</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --text: #20242a;
+    --muted: #68707c;
+    --border: #dde2e8;
+    --accent: #1677ff;
+    --accent-soft: #eaf3ff;
+    --ok: #087e5b;
+    --ok-soft: #ecfbf5;
+    --warn: #a35b00;
+    --warn-soft: #fff7e8;
+    --code-bg: #f1f3f6;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 24px rgba(20, 30, 45, .06);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101318;
+      --surface: #181c23;
+      --text: #e7ebf0;
+      --muted: #a0a9b6;
+      --border: #2b323c;
+      --accent: #69a9ff;
+      --accent-soft: #172942;
+      --ok: #61d5ae;
+      --ok-soft: #102a22;
+      --warn: #f1b960;
+      --warn-soft: #302313;
+      --code-bg: #202630;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    color: var(--text);
+    background: var(--bg);
+    font: 16px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  .topbar .title { font-weight: 650; font-size: 15px; }
+  .topbar .spacer { flex: 1; }
+  .action {
+    padding: 7px 12px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .action:hover { color: var(--accent); border-color: var(--accent); }
+  .layout {
+    display: grid;
+    grid-template-columns: 225px minmax(0, 1fr);
+    gap: 40px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 42px 24px 96px;
+  }
+  .toc {
+    position: sticky;
+    top: 78px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+    overflow: auto;
+    font-size: 13px;
+  }
+  .toc-title {
+    margin: 0 0 10px 8px;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .toc a {
+    display: block;
+    padding: 5px 10px;
+    color: var(--muted);
+    border-left: 2px solid transparent;
+    border-radius: 7px;
+    line-height: 1.35;
+    text-decoration: none;
+  }
+  .toc a:hover, .toc a.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .toc a.active { border-left-color: var(--accent); }
+  .toc a.h3 { padding-left: 22px; font-size: 12px; }
+  .content { min-width: 0; }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -.025em;
+  }
+  .doc-sub { margin: 0 0 5px; color: var(--muted); font-size: 17px; }
+  .doc-meta { margin: 0 0 30px; color: var(--muted); font-size: 13px; }
+  h2 {
+    margin: 44px 0 14px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--border);
+    font-size: 22px;
+    letter-spacing: -.01em;
+    scroll-margin-top: 80px;
+  }
+  h3 { margin: 28px 0 9px; font-size: 17px; scroll-margin-top: 80px; }
+  p { margin: 10px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 5px 0; }
+  code {
+    padding: .15em .42em;
+    background: var(--code-bg);
+    border-radius: 5px;
+    font: .88em "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  table { width: 100%; margin: 16px 0; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: var(--accent-soft); font-weight: 650; }
+  .callout {
+    margin: 18px 0;
+    padding: 13px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 10px;
+  }
+  .callout .label { margin-bottom: 3px; font-size: 13px; font-weight: 700; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.info { border-left-color: var(--accent); background: var(--accent-soft); }
+  .callout.info .label { color: var(--accent); }
+  .callout.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+  .callout.ok .label { color: var(--ok); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .callout.warn .label { color: var(--warn); }
+  .option-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin: 18px 0;
+  }
+  .option-card {
+    padding: 17px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .option-card.pick { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+  .option-card h3 { margin: 5px 0 7px; font-size: 16px; }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .option-card ul { margin-bottom: 0; padding-left: 18px; font-size: 14px; }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 9px;
+    margin: 20px 0;
+  }
+  .flow .node {
+    display: grid;
+    place-items: center;
+    min-height: 82px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-align: center;
+    font-size: 13px;
+  }
+  .flow .arrow { align-self: center; color: var(--muted); text-align: center; }
+  details {
+    margin: 14px 0;
+    padding: 0 15px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  details[open] { padding-bottom: 8px; }
+  summary { padding: 12px 0; cursor: pointer; font-weight: 650; }
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    padding: 9px 16px;
+    color: var(--bg);
+    background: var(--text);
+    border-radius: 999px;
+    opacity: 0;
+    transform: translate(-50%, 16px);
+    transition: .2s;
+    pointer-events: none;
+    font-size: 13px;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  footer {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 22px 24px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 20px; }
+    .toc { position: static; max-height: none; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+    .flow { grid-template-columns: 1fr; }
+    .flow .arrow { transform: rotate(90deg); }
+  }
+  @media print {
+    .topbar, .toc, .toast { display: none !important; }
+    .layout { display: block; max-width: none; padding: 0; }
+    .option-card, .callout, details { box-shadow: none; break-inside: avoid; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span class="title">CVAT clean-image mode</span>
+  <span class="spacer"></span>
+  <button class="action" id="copyPromptBtn" type="button">Copy as prompt</button>
+  <button class="action" onclick="window.print()" type="button">Print / PDF</button>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-title">On this page</div>
+    <div id="toc-list"></div>
+  </nav>
+
+  <main class="content">
+    <h1>CVAT clean-image mode</h1>
+    <p class="doc-sub">A reversible shortcut for viewing the source frame without any CVAT annotation or review overlay.</p>
+    <p class="doc-meta">7 September 2026 · CVAT fork · Implemented and locally checked in isolated feature worktree; browser run pending</p>
+
+    <h2>Executive summary</h2>
+    <p>Add a frontend-only clean-image mode to image annotation jobs. A registered, user-rebindable shortcut—<code>Shift+H</code> by default—temporarily suppresses every annotation and review overlay while leaving the source bitmap visible. The mode never changes annotation data or existing visibility preferences, remains active while navigating frames, and restores the previous presentation exactly when toggled off.</p>
+    <div class="callout ok">
+      <div class="label">Approved behavior</div>
+      <p>The reviewer gets a fast, nuclear visibility switch: source image only, then one keypress to bring every CVAT overlay back.</p>
+    </div>
+
+    <h2>Goals and boundaries</h2>
+    <h3>Goals</h3>
+    <ul>
+      <li>Provide one fast command for inspecting the unobstructed image.</li>
+      <li>Hide annotation geometry, annotation text, tags, issue regions, conflict overlays, and ground-truth comparison overlays together.</li>
+      <li>Preserve every underlying annotation, review item, and user visibility preference.</li>
+      <li>Keep the mode active while moving between frames in the same job.</li>
+      <li>Expose the command through CVAT's normal shortcut registry so each user can rebind it.</li>
+    </ul>
+    <h3>Non-goals</h3>
+    <ul>
+      <li>No annotation deletion, mutation, server request, autosave event, or audit-log entry.</li>
+      <li>No persistent job or account setting. Reloading or closing the job resets the mode.</li>
+      <li>No change to the source bitmap's zoom, rotation, smoothing, brightness, contrast, saturation, or other image filters.</li>
+      <li>No replacement for per-object visibility, the existing <code>T H</code> command, or the issues eye control.</li>
+    </ul>
+
+    <h2>Options considered</h2>
+    <div class="option-grid">
+      <div class="option-card pick">
+        <span class="tag">Selected</span>
+        <h3>Dedicated transient mode</h3>
+        <p>A single runtime flag suppresses rendering at the overlay boundaries.</p>
+        <ul>
+          <li>Exact restoration</li>
+          <li>No annotation-state churn</li>
+          <li>Easy to extend when CVAT adds overlay types</li>
+        </ul>
+      </div>
+      <div class="option-card">
+        <h3>Reuse existing hide actions</h3>
+        <p>Hide all objects and issues, then remember and restore each prior state.</p>
+        <ul>
+          <li>Reuses existing actions</li>
+          <li>Fragile with already-hidden objects and mixed review settings</li>
+        </ul>
+      </div>
+      <div class="option-card">
+        <h3>Ad hoc CSS hiding</h3>
+        <p>Apply display rules to currently known overlay selectors.</p>
+        <ul>
+          <li>Small initial patch</li>
+          <li>Easy for new or rerendered overlays to bypass</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>User experience</h2>
+    <table>
+      <thead><tr><th>Situation</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Idle canvas, clean mode off</td><td><code>Shift+H</code> hides every CVAT overlay and shows a compact status indicator outside the image.</td></tr>
+        <tr><td>Clean mode on</td><td>The same registered shortcut restores the complete previous presentation immediately.</td></tr>
+        <tr><td>Navigating frames</td><td>Clean mode stays active until explicitly disabled.</td></tr>
+        <tr><td>Drawing, editing, AI preview, or issue-region creation in progress</td><td>Activation is refused. CVAT keeps the current operation intact and explains that it must be completed or cancelled first.</td></tr>
+        <tr><td>An editing command starts while clean mode is active</td><td>Clean mode exits before the command begins, preventing invisible edits.</td></tr>
+        <tr><td>Job closed or page reloaded</td><td>The transient flag resets; the job opens with its normal overlays.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout info">
+      <div class="label">Shortcut behavior</div>
+      <p><code>Shift+H</code> is only the default. The command appears in CVAT's shortcut list and uses the existing per-user rebinding and conflict-resolution mechanism. The status indicator displays the user's current binding rather than hard-coding the default.</p>
+    </div>
+
+    <h2>What becomes invisible</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Examples</th><th>Underlying state</th></tr></thead>
+      <tbody>
+        <tr><td>Annotation geometry</td><td>Masks, rectangles, polygons, polylines, points, ellipses, cuboids, skeletons, tracks</td><td>Unchanged</td></tr>
+        <tr><td>Annotation decoration</td><td>Labels, IDs, descriptions, dimensions, attributes, control points, selection outlines</td><td>Unchanged</td></tr>
+        <tr><td>Frame annotations</td><td>Tag pills and tag overlays</td><td>Unchanged</td></tr>
+        <tr><td>Review overlays</td><td>Open and resolved issue regions, issue markers, quick-issue regions</td><td>Unchanged</td></tr>
+        <tr><td>Quality overlays</td><td>Conflicts, highlighted conflicts, ground-truth comparison shapes</td><td>Conflict data and visibility preferences retained; transient highlight cleared while hidden</td></tr>
+        <tr><td>Transient canvas decoration</td><td>Hover highlights, active-object handles, snapping guides, grids</td><td>Preference retained and restored</td></tr>
+      </tbody>
+    </table>
+    <p>The source bitmap, its current image filters, and ordinary pan/zoom navigation remain available. Controls outside the canvas remain visible.</p>
+
+    <h2>Architecture</h2>
+    <div class="flow" aria-label="Clean-image mode data flow">
+      <div class="node"><strong>Registered shortcut</strong><br>Default Shift+H</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Eligibility guard</strong><br>Idle, pan, or zoom; no pending edits or inference</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Transient Redux flag</strong><br>Current job session</div>
+    </div>
+    <div class="flow" aria-label="Rendering response">
+      <div class="node"><strong>2D canvas</strong><br>Suppress renderer-owned overlays</div>
+      <div class="arrow">+</div>
+      <div class="node"><strong>React overlays</strong><br>Suppress tags and review layers</div>
+      <div class="arrow">→</div>
+      <div class="node"><strong>Source image only</strong><br>State remains intact</div>
+    </div>
+
+    <h3>State and action</h3>
+    <p>The annotation canvas state owns <code>cleanImageMode</code> and transient <code>detectorOperationIDs</code>; the operation list derives the simple <code>detectorInferencePending</code> guard consumed by the control. Starting inference synchronously exits clean before awaiting the server. Direct-create, tags-only, and Preview Done await the annotation write Promise under their operation guard. Cancellation before a write releases the request token; a write already started remains guarded until success or failure, even after cancellation or unmount. Core writes are not cancelable. Each finalizer releases only its own ID, so older component/job work cannot clear newer guards. Close, logout, and reload reset the transient state.</p>
+
+    <h3>Shortcut registration</h3>
+    <p>Register <code>TOGGLE_CLEAN_IMAGE_MODE</code> at annotation-page scope with <code>Shift+H</code> as its default sequence. Mount a single handler at the annotation-page boundary so it works in standard and review workspaces without duplicate registrations. The normal shortcuts UI remains the source of truth for rebinding.</p>
+
+    <h3>Canvas boundary</h3>
+    <p>The 2D canvas configuration carries an explicit clean-image presentation flag. Text, masks, bitmap, grid, and attachment roots are hidden with their prior visibility restored on exit. The content SVG stays visible as the interaction plane for pointer events and coordinate mapping. A scoped canvas CSS class suppresses its current and future children, except the temporary ROI zoom selection rectangle. This preserves real drag-to-zoom while annotation geometry and review overlays remain hidden. Cancelling ROI zoom removes the selection rectangle and all its pointer listeners.</p>
+
+    <h3>React and review boundaries</h3>
+    <p>Frame tags and canvas context menus read the same flag and omit their visual output. Stateful issue and new-issue dialogs, plus issue labels, remain mounted through portals inside the visibility-hidden attachment board, preserving unsent comments, descriptions, and component identity. No review dialog is moved outside that hidden board. If a retained focused control receives Enter, the shared review mutation boundary exits clean synchronously before creating, commenting, resolving, reopening, or deleting an issue. Legacy plain create/start/submit-review actions also clear clean mode. They preserve the issues eye, resolved-issue preference, ground-truth setting, and conflict records. The transient highlighted conflict is cleared while hidden, and populated conflict labels are mapped again from visible objects on restoration.</p>
+
+    <h3>Restoration</h3>
+    <p>Disabling the flag causes the canvas and React overlay components to render from their current authoritative state. Objects that were manually hidden stay hidden; visible objects return; issue filters, active layer settings, and ground-truth preferences resume exactly as before.</p>
+
+    <h2>Interaction safeguards</h2>
+    <ul>
+      <li>Refuse activation whenever drawing, shape editing, mask editing, issue-region selection, an interactor session, or a detector preview owns temporary canvas content, and while detector inference is pending (including results committed directly without preview).</li>
+      <li>Do not cancel, finish, or mutate an in-progress operation as a side effect of the shortcut.</li>
+      <li>Show a concise notice: “Finish or cancel the current canvas operation before entering clean-image mode.”</li>
+      <li>While clean mode is active, pan, zoom, frame navigation, and image inspection remain enabled.</li>
+      <li>If a command begins an annotation or review operation, dispatch clean exit before invoking its 2D canvas start API. Cancellation remains first, and slice captures its target before the Redux control transition clears selection. The shared draw popover retains existing 3D ordering.</li>
+      <li>One-shot mutations such as Delete, lock, hidden, occluded, pinned, keyframe, outside, color, and z-order changes exit clean through their shared annotation action boundary before core mutation. Bulk updates/removal, creation, propagation, geometry operations, and undo/redo use the same policy. When clean mode is already disabled, this boundary dispatches nothing.</li>
+      <li>Saving while clean mode is active saves the same annotations as usual because the feature changes presentation only.</li>
+    </ul>
+
+    <h2>Status indicator</h2>
+    <p>Display a compact indicator outside the image viewport while the mode is active:</p>
+    <div class="callout warn">
+      <div class="label">Clean image</div>
+      <p>Annotations and review overlays are temporarily hidden · <strong>Shift+H</strong> to restore</p>
+    </div>
+    <p>The indicator should be clickable to exit the mode and should use the normalized, user-configured shortcut string. It must not overlap the source image.</p>
+
+    <h2>Verification</h2>
+    <table>
+      <thead><tr><th>Level</th><th>Required evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Reducer/unit</td><td>Toggle, job-close reset, frame-change persistence, and no mutation of object/review visibility state.</td></tr>
+        <tr><td>Canvas unit</td><td>Overlay roots and content children are suppressed and restored; the content SVG remains an event plane. ROI coordinate mapping and listener cleanup are verified.</td></tr>
+        <tr><td>Component</td><td>Tags, issues, conflicts, ground truth, and the status indicator follow the transient flag.</td></tr>
+        <tr><td>Shortcut</td><td>Default binding works, rebinding works, conflict detection remains active, and the indicator reflects the customized sequence.</td></tr>
+        <tr><td>Safeguards</td><td>Activation is refused during draw/edit/AI-preview/pending-inference/issue-selection operations without cancelling them; starting an editing command exits an already-active clean mode.</td></tr>
+        <tr><td>Browser workflow</td><td>Cypress source covers mixed annotations and issues, restoration across frames, and an actual ROI drag while clean mode remains active. This fixture has no ground-truth job; populated conflict mapping, hiding, and restoration are covered at component level. Browser execution requires a local test stack and has not been run for these final fixes.</td></tr>
+        <tr><td>Project gates</td><td>Focused unit suites, UI and canvas TypeScript, ESLint, syntax, and diff checks. A production build and local browser workflow are separate verification steps.</td></tr>
+      </tbody>
+    </table>
+
+    <p>Final-fix verification: clean-image unit suite 63/63; detector transaction suite 30/30; UI and canvas TypeScript checks passed; focused ESLint passed with zero warnings; JavaScript syntax, canvas SCSS compilation, and diff checks passed. The Cypress regression was not executed against a browser for these fixes.</p>
+
+    <h2>Deployment and rollback</h2>
+    <p>The feature changes only <code>cvat-ui</code> and the browser-side canvas packages. It requires rebuilding and recreating the UI service; no CVAT server migration, database change, API change, or Nuclio deployment is required. Rollback consists of restoring the previous UI image.</p>
+
+    <h2>Implementation handoff</h2>
+    <ol>
+      <li>Implementation is present in <code>.worktrees/clean-image-mode</code> on <code>feat/clean-image-mode</code>.</li>
+      <li>Final review fixes preserve ROI zoom and review drafts, guard detector inference and asynchronous annotation writes with operation IDs, and exit before review submissions, one-shot mutations, and 2D operation starts.</li>
+      <li>Focused regressions cover reducer transitions, populated conflicts, shortcut behavior, and detector lifecycle. Cypress source still needs a local browser run.</li>
+      <li>Keep commit, merge, push, and UI deployment as explicit integration steps.</li>
+    </ol>
+  </main>
+</div>
+
+<footer>Generated by Codex · plan-as-html · 7 September 2026</footer>
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script type="text/plain" id="prompt-seed">
+Re: the CVAT clean-image mode design (a rebindable shortcut that temporarily shows only the source image while preserving all annotation and review state).
+I've read it. I want to change the following:
+-
+</script>
+<script>
+  (function () {
+    const content = document.querySelector('.content');
+    const list = document.getElementById('toc-list');
+    const headings = content.querySelectorAll('h2, h3');
+    const slug = (text) => text.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 60);
+    const seen = {};
+    headings.forEach((heading) => {
+      let id = heading.id || slug(heading.textContent);
+      if (seen[id]) id = `${id}-${++seen[id]}`; else seen[id] = 1;
+      heading.id = id;
+      const link = document.createElement('a');
+      link.href = `#${id}`;
+      link.textContent = heading.textContent;
+      link.className = heading.tagName === 'H3' ? 'h3' : '';
+      list.appendChild(link);
+    });
+    const links = Array.from(list.querySelectorAll('a'));
+    const byId = Object.fromEntries(links.map((link) => [link.getAttribute('href').slice(1), link]));
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          links.forEach((link) => link.classList.remove('active'));
+          byId[entry.target.id]?.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-72px 0px -70% 0px' });
+    headings.forEach((heading) => observer.observe(heading));
+    const toast = document.getElementById('toast');
+    document.getElementById('copyPromptBtn').addEventListener('click', async () => {
+      const seed = document.getElementById('prompt-seed').textContent.trim();
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(seed);
+        copied = true;
+      } catch (_) {
+        const area = document.createElement('textarea');
+        area.value = seed;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+        area.remove();
+      }
+      toast.textContent = copied ? 'Copied — paste it back to Codex to revise' : 'Copy failed';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    });
+  }());
+</script>
+</body>
+</html>

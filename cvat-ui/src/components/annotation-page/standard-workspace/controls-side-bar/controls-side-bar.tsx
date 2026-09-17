@@ -222,8 +222,8 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
                 className: 'cvat-merge-control',
                 onClick: (): void => {
                     canvasInstance.cancel();
-                    canvasInstance.merge({ enabled: true });
                     updateActiveControl(ActiveControl.MERGE);
+                    canvasInstance.merge({ enabled: true });
                 },
             };
 
@@ -240,8 +240,8 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
                 className: 'cvat-group-control',
                 onClick: (): void => {
                     canvasInstance.cancel();
-                    canvasInstance.group({ enabled: true });
                     updateActiveControl(ActiveControl.GROUP);
+                    canvasInstance.group({ enabled: true });
                 },
             };
 
@@ -256,8 +256,8 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
             className: 'cvat-split-track-control',
             onClick: (): void => {
                 canvasInstance.cancel();
-                canvasInstance.split({ enabled: true });
                 updateActiveControl(ActiveControl.SPLIT);
+                canvasInstance.split({ enabled: true });
             },
         };
 
