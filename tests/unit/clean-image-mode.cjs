@@ -539,14 +539,19 @@ test('registers the clean-image shortcut metadata once', () => {
     assert.strictEqual(loaded.registrations[0], loaded.cleanImageModeShortcuts);
 });
 
-test('keeps the clean-image hotkey mounted for inactive 2D jobs', () => {
+test('shows an inactive clean-image button alongside its hotkey for 2D jobs', () => {
     const state = cleanImageModeState();
     const loaded = loadCleanImageModeControl(state, []);
     const elements = renderedCleanImageModeControl(loaded);
     const hotkeys = cleanImageModeHotkeys(loaded);
+    const button = elements.find((element) => element.type === loaded.elements.Button);
+    const tooltip = elements.find((element) => element.type === loaded.elements.CVATTooltip);
 
     assert.ok(elements.some((element) => element.type === loaded.elements.GlobalHotKeys));
-    assert.equal(elements.some((element) => element.type === loaded.elements.Button), false);
+    assert.ok(button);
+    assert.equal(button.props['aria-pressed'], false);
+    assert.equal(button.props.className, 'cvat-clean-image-mode-indicator cvat-annotation-header-button');
+    assert.equal(tooltip.props.overlay, 'Show only the source image · Shift+H to activate');
     assert.strictEqual(hotkeys.props.keyMap.TOGGLE_CLEAN_IMAGE_MODE, state.shortcuts.keyMap.TOGGLE_CLEAN_IMAGE_MODE);
 });
 
@@ -644,6 +649,33 @@ test('exits clean-image mode through the active indicator button', () => {
     indicator.props.onClick();
 
     assert.deepEqual(dispatchedActions, [{ type: 'switch-clean-image-mode', enabled: false }]);
+});
+
+test('enters clean-image mode through the inactive button', () => {
+    const dispatchedActions = [];
+    const warnings = [];
+    const loaded = loadCleanImageModeControl(cleanImageModeState(), dispatchedActions, warnings);
+    const button = renderedCleanImageModeControl(loaded).find((element) => element.type === loaded.elements.Button);
+
+    button.props.onClick();
+
+    assert.deepEqual(dispatchedActions, [{ type: 'switch-clean-image-mode', enabled: true }]);
+    assert.deepEqual(warnings, []);
+});
+
+test('refuses button activation during an active drawing operation', () => {
+    const dispatchedActions = [];
+    const warnings = [];
+    const state = cleanImageModeState();
+    state.annotation.canvas.instance = new Canvas(CanvasMode.DRAW);
+    const loaded = loadCleanImageModeControl(state, dispatchedActions, warnings);
+    const button = renderedCleanImageModeControl(loaded).find((element) => element.type === loaded.elements.Button);
+
+    button.props.onClick();
+
+    assert.deepEqual(dispatchedActions, []);
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].message, 'Finish or cancel the current canvas operation before entering clean-image mode.');
 });
 
 test('uses a click fallback when the clean-image shortcut has no normalized binding', () => {

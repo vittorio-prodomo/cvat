@@ -99,23 +99,25 @@ export function CleanImageModeControl(): JSX.Element | null {
         'Annotations and review overlays are temporarily hidden · ',
         restoreAction,
     ].join('');
+    const activateAction = normalizedKeyMap.TOGGLE_CLEAN_IMAGE_MODE ?
+        `${normalizedKeyMap.TOGGLE_CLEAN_IMAGE_MODE} to activate` : 'Click to activate';
+    const activateTooltip = `Show only the source image · ${activateAction}`;
 
     return (
         <>
             <GlobalHotKeys keyMap={subKeyMap(cleanImageModeShortcuts, keyMap as KeyMap)} handlers={handlers} />
-            {cleanImageMode && (
-                <CVATTooltip overlay={restoreTooltip}>
-                    <Button
-                        type='link'
-                        aria-pressed
-                        className='cvat-clean-image-mode-indicator cvat-annotation-header-button cvat-button-active'
-                        onClick={toggleCleanImageMode}
-                    >
-                        <EyeInvisibleOutlined />
-                        Clean
-                    </Button>
-                </CVATTooltip>
-            )}
+            <CVATTooltip overlay={cleanImageMode ? restoreTooltip : activateTooltip}>
+                <Button
+                    type='link'
+                    aria-pressed={cleanImageMode}
+                    className={`cvat-clean-image-mode-indicator cvat-annotation-header-button${cleanImageMode ?
+                        ' cvat-button-active' : ''}`}
+                    onClick={toggleCleanImageMode}
+                >
+                    <EyeInvisibleOutlined />
+                    Clean
+                </Button>
+            </CVATTooltip>
         </>
     );
 }

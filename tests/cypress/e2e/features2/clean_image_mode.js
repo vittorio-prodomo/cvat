@@ -184,12 +184,12 @@ context('Clean image mode', { scrollBehavior: false }, () => {
         cy.get('.cvat-spinner').should('not.exist');
         cy.get('#cvat_canvas_background').should('be.visible');
         cy.checkFrameNum(0);
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('be.visible').and('have.attr', 'aria-pressed', 'false');
     });
 
     afterEach(() => {
         cy.get('body').then(($body) => {
-            if ($body.find(CLEAN_MODE_INDICATOR).length) {
+            if ($body.find(`${CLEAN_MODE_INDICATOR}[aria-pressed="true"]`).length) {
                 cy.get(CLEAN_MODE_INDICATOR).click();
             }
             if ($body.find('.cvat_canvas_shape_drawing').length) {
@@ -267,7 +267,7 @@ context('Clean image mode', { scrollBehavior: false }, () => {
         cy.get('.cvat-canvas-context-menu').should('be.visible');
 
         cy.realPress(['Shift', 'H']);
-        cy.get(CLEAN_MODE_INDICATOR).should('be.visible').and('have.attr', 'aria-pressed');
+        cy.get(CLEAN_MODE_INDICATOR).should('be.visible').and('have.attr', 'aria-pressed', 'true');
         cy.get('#cvat_canvas_background')
             .should('be.visible')
             .and('have.css', 'visibility', 'visible');
@@ -286,7 +286,7 @@ context('Clean image mode', { scrollBehavior: false }, () => {
         assertRendererRootsHidden();
 
         cy.realPress(['Shift', 'H']);
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
         assertRendererRootsRestored();
         getShape('@rectangleClientID').should('be.visible');
         getShape('@maskClientID').should('be.visible');
@@ -336,7 +336,8 @@ context('Clean image mode', { scrollBehavior: false }, () => {
 
         cy.realPress(['Shift', 'H']);
 
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false').click();
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
         cy.contains('.ant-notification-notice-message', OPERATION_WARNING)
             .should('be.visible')
             .and('have.text', OPERATION_WARNING);
@@ -357,7 +358,7 @@ context('Clean image mode', { scrollBehavior: false }, () => {
 
         startRectangleDrawing(labelName);
 
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
         assertRendererRootsRestored();
         cy.get('.cvat-draw-rectangle-control')
             .should('have.class', 'cvat-active-canvas-control');
@@ -398,13 +399,27 @@ context('Clean image mode', { scrollBehavior: false }, () => {
         cy.reload();
         cy.get('.cvat-canvas-container').should('exist').and('be.visible');
         cy.realPress(['Shift', 'H']);
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
 
         cy.realPress(['Alt', 'H']);
         cy.get(CLEAN_MODE_INDICATOR).should('be.visible').realHover();
         cy.contains('.ant-tooltip-inner', '[Alt+H] to restore').should('be.visible');
 
         cy.realPress(['Alt', 'H']);
-        cy.get(CLEAN_MODE_INDICATOR).should('not.exist');
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
+    });
+
+    it('enters and exits clean mode through the persistent button', () => {
+        switchToStandardWorkspace();
+        cy.get(CLEAN_MODE_INDICATOR)
+            .should('be.visible')
+            .and('have.attr', 'aria-pressed', 'false')
+            .click();
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'true');
+        assertRendererRootsHidden();
+
+        cy.get(CLEAN_MODE_INDICATOR).click();
+        cy.get(CLEAN_MODE_INDICATOR).should('have.attr', 'aria-pressed', 'false');
+        assertRendererRootsRestored();
     });
 });
